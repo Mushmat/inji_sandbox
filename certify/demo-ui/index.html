@@ -234,6 +234,20 @@
   .section-title:first-child { margin-top: 0; }
   details.raw { margin-top: 10px; }
   details.raw summary { cursor: pointer; font-size: 0.8rem; color: var(--accent); }
+
+  .howto {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 14px 16px 0;
+  }
+  .howto ol {
+    margin: 0;
+    padding-left: 18px;
+    font-size: 0.84rem;
+    color: var(--muted);
+  }
+  .howto li { margin-bottom: 2px; }
+  .field-hint { font-size: 0.74rem; color: var(--muted); margin: 2px 0 0; }
 </style>
 </head>
 <body>
@@ -241,6 +255,15 @@
 <div class="topbar">
   <h1>Inji Certify — Issuer Demo</h1>
   <p>Real OpenID4VCI issuance against a local Certify instance and MOSIP Collab's mock eSignet. Issuer piece only — not the team's playground UI.</p>
+</div>
+
+<div class="howto">
+  <ol>
+    <li>(Optional) Edit the identity on the left and save — this restarts Certify, so it takes about a minute.</li>
+    <li>Pick a credential format on the right.</li>
+    <li>Click "Issue credential" and watch the protocol steps run.</li>
+    <li>Click any step to see its raw request/response. The result at the bottom shows the decoded credential, with the raw form behind a toggle.</li>
+  </ol>
 </div>
 
 <div class="layout">
@@ -286,6 +309,22 @@ const FORMATS = [
 let selectedFormat = "ldp_vc";
 let identityFields = [];
 
+const FIELD_HINTS = {
+  fullName: "Used as-is on JSON-LD and SD-JWT. Split into first/last for the mDoc format.",
+  mobileNumber: "10 digits, no spaces or dashes.",
+  dateOfBirth: "Format DD-MM-YYYY, e.g. 25-05-1990. Also becomes the mDoc birth_date.",
+  gender: "Male, Female, or Other.",
+  state: "Indian state, e.g. Karnataka.",
+  district: "District within the state above.",
+  villageOrTown: "Village or town name.",
+  postalCode: "6-digit PIN code.",
+  landArea: "Include the unit, e.g. \"3 hectares\" or \"2.5 acres\".",
+  landOwnershipType: "Owner or Tenant.",
+  primaryCropType: "Main crop grown, e.g. Maize.",
+  secondaryCropType: "Second crop grown, e.g. Rice.",
+  farmerID: "Numeric ID. Doubles as the mDoc document_number.",
+};
+
 const $ = (sel) => document.querySelector(sel);
 
 function renderFormats() {
@@ -317,6 +356,7 @@ async function loadIdentity() {
       <div class="field">
         <label>${f}</label>
         <input type="text" data-field="${f}" value="${(id[f] || '').replace(/"/g, '&quot;')}">
+        ${FIELD_HINTS[f] ? `<p class="field-hint">${FIELD_HINTS[f]}</p>` : ""}
       </div>
     `).join("")}
     <button class="btn-primary" id="btn-save-identity">Save &amp; restart issuer</button>
