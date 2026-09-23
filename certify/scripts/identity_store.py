@@ -14,15 +14,15 @@ from issuance_flow import INDIVIDUAL_ID
 
 CSV_PATH = os.path.join(os.path.dirname(__file__), "..", "docker-compose", "config", "farmer_identity_data.csv")
 
-# What the UI is allowed to edit. "face", "givenName" and "familyName" are
-# deliberately left out - face is a big base64 image blob, not practical to
-# edit through a text form, and givenName/familyName are derived from
-# fullName automatically (see split_name below) so they can't drift out of
-# sync with it.
+# What the UI is allowed to edit. "givenName" and "familyName" are left out
+# on purpose - they're derived from fullName automatically (see split_name
+# below) so they can't drift out of sync with it. "face" is included but the
+# UI renders it as a camera capture, not a text box - a base64 image isn't
+# something anyone should be typing.
 EDITABLE_FIELDS = [
     "fullName", "mobileNumber", "dateOfBirth", "gender", "state", "district",
     "villageOrTown", "postalCode", "landArea", "landOwnershipType",
-    "primaryCropType", "secondaryCropType", "farmerID",
+    "primaryCropType", "secondaryCropType", "farmerID", "face",
 ]
 
 

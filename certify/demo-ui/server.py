@@ -26,7 +26,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 from flask import Flask, jsonify, request, send_from_directory
 from issuance_flow import run_issuance, VALID_FORMATS
 from identity_store import read_identity, update_identity, EDITABLE_FIELDS
-from certify_control import restart_certify
+from certify_control import start_restart, get_status
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -84,18 +84,25 @@ def save_identity():
         logger.exception("failed to write identity data")
         return jsonify({"ok": False, "error": str(e)}), 500
 
-    # Certify caches this file at startup, so the edit only takes effect
-    # after a restart - this call blocks until it's healthy again, which is
-    # why the UI needs to show a "this takes about a minute" state for it.
-    healthy = restart_certify()
-    if not healthy:
-        return jsonify({
-            "ok": False,
-            "identity": updated,
-            "error": "identity saved, but Certify didn't come back healthy after restart - check docker logs",
-        }), 502
+    # The CSV write above is what actually matters and it's already done -
+    # that's never what's slow. Certify just caches the file at startup, so
+    # the edit only takes effect once it restarts, and that restart runs in
+    # the background rather than blocking this response: the client polls
+    # /api/identity/status to watch it finish instead of one long request
+    # that would eventually have to guess when "still going" becomes "call
+    # it a failure."
+    started = start_restart()
+    return jsonify({
+        "ok": True,
+        "identity": updated,
+        "restarting": True,
+        "already_restarting": not started,
+    })
 
-    return jsonify({"ok": True, "identity": updated})
+
+@app.route("/api/identity/status", methods=["GET"])
+def identity_restart_status():
+    return jsonify(get_status())
 
 
 if __name__ == "__main__":

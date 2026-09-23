@@ -93,7 +93,7 @@
     color: var(--muted);
     margin-bottom: 3px;
   }
-  .field input {
+  .field input, .field select {
     width: 100%;
     padding: 7px 9px;
     border: 1px solid var(--border);
@@ -101,8 +101,10 @@
     background: var(--panel-2);
     color: var(--text);
     font-size: 0.86rem;
+    font-family: inherit;
   }
-  .field input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .field input:focus, .field select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .field input[type="date"] { color-scheme: light dark; }
 
   button {
     font-family: inherit;
@@ -141,6 +143,23 @@
     margin-top: 10px;
   }
   .restart-banner.show { display: flex; }
+  .restart-banner.success { color: var(--ok); background: var(--ok-soft); }
+  .restart-banner.error { color: var(--fail); background: var(--fail-soft); }
+
+  .photo-box {
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--panel-2);
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .photo-box img, .photo-box video { width: 100%; height: 100%; object-fit: cover; }
+  .photo-actions { display: flex; gap: 8px; margin-top: 8px; }
+  .photo-actions button { width: auto; flex: 1; padding: 7px 10px; font-size: 0.8rem; }
   .spinner {
     width: 13px; height: 13px;
     border: 2px solid currentColor;
@@ -312,7 +331,7 @@ let identityFields = [];
 const FIELD_HINTS = {
   fullName: "Used as-is on JSON-LD and SD-JWT. Split into first/last for the mDoc format.",
   mobileNumber: "10 digits, no spaces or dashes.",
-  dateOfBirth: "Format DD-MM-YYYY, e.g. 25-05-1990. Also becomes the mDoc birth_date.",
+  dateOfBirth: "Also becomes the mDoc birth_date.",
   gender: "Male, Female, or Other.",
   state: "Indian state, e.g. Karnataka.",
   district: "District within the state above.",
@@ -322,8 +341,23 @@ const FIELD_HINTS = {
   landOwnershipType: "Owner or Tenant.",
   primaryCropType: "Main crop grown, e.g. Maize.",
   secondaryCropType: "Second crop grown, e.g. Rice.",
-  farmerID: "Numeric ID. Doubles as the mDoc document_number.",
+  farmerID: "Doubles as the mDoc document_number.",
 };
+
+const FIELD_LABELS = {
+  fullName: "Full Name", mobileNumber: "Mobile Number", dateOfBirth: "Date of Birth",
+  gender: "Gender", state: "State", district: "District", villageOrTown: "Village / Town",
+  postalCode: "PIN Code", landArea: "Land Area", landOwnershipType: "Land Ownership",
+  primaryCropType: "Primary Crop", secondaryCropType: "Secondary Crop", farmerID: "Farmer ID",
+};
+
+// How the fields get grouped in the form - not just a flat dump of CSV
+// columns, grouped the way a person filling this out would think about it.
+const FIELD_GROUPS = [
+  { title: "Personal", fields: ["fullName", "dateOfBirth", "gender", "mobileNumber"] },
+  { title: "Address", fields: ["state", "district", "villageOrTown", "postalCode"] },
+  { title: "Farm details", fields: ["farmerID", "landArea", "landOwnershipType", "primaryCropType", "secondaryCropType"] },
+];
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -342,6 +376,32 @@ function renderFormats() {
   });
 }
 
+const GENDER_OPTIONS = ["Male", "Female", "Other"];
+
+// CSV stores dates as DD-MM-YYYY; <input type="date"> needs YYYY-MM-DD.
+function ddmmyyyyToHtmlDate(s) {
+  const m = /^(\d{2})-(\d{2})-(\d{4})$/.exec(s || "");
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : "";
+}
+function htmlDateToDdmmyyyy(s) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || "");
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : s;
+}
+
+function fieldInputHtml(f, value) {
+  if (f === "gender") {
+    return `<select data-field="${f}">${GENDER_OPTIONS.map(g =>
+      `<option value="${g}" ${g === value ? "selected" : ""}>${g}</option>`
+    ).join("")}</select>`;
+  }
+  if (f === "dateOfBirth") {
+    return `<input type="date" data-field="${f}" data-date-field="1" value="${ddmmyyyyToHtmlDate(value)}">`;
+  }
+  return `<input type="text" data-field="${f}" value="${(value || '').replace(/"/g, '&quot;')}">`;
+}
+
+let capturedFace = null; // set once the user captures a new photo; null = keep existing
+
 async function loadIdentity() {
   const res = await fetch("/api/identity");
   const data = await res.json();
@@ -351,29 +411,90 @@ async function loadIdentity() {
   }
   identityFields = data.fields;
   const id = data.identity;
+  capturedFace = null;
+
   $("#identity-body").innerHTML = `
-    ${data.fields.map(f => `
-      <div class="field">
-        <label>${f}</label>
-        <input type="text" data-field="${f}" value="${(id[f] || '').replace(/"/g, '&quot;')}">
-        ${FIELD_HINTS[f] ? `<p class="field-hint">${FIELD_HINTS[f]}</p>` : ""}
-      </div>
-    `).join("")}
     <button class="btn-primary" id="btn-save-identity">Save &amp; restart issuer</button>
-    <div class="restart-banner" id="restart-banner"><span class="spinner"></span> Restarting Certify — takes about a minute…</div>
+    <div class="restart-banner" id="restart-banner"></div>
+
+    <div class="section-title" style="margin-top:14px;">Photo</div>
+    <div class="photo-box">
+      <img id="photo-preview" src="${id.face || ''}" style="${id.face ? '' : 'display:none;'}">
+      <video id="camera-video" autoplay playsinline muted style="display:none;"></video>
+    </div>
+    <canvas id="camera-canvas" style="display:none;"></canvas>
+    <div class="photo-actions">
+      <button class="btn-secondary" id="btn-open-camera" type="button">${id.face ? "Retake photo" : "Open camera"}</button>
+      <button class="btn-secondary" id="btn-capture-photo" type="button" style="display:none;">Capture</button>
+    </div>
+    <p class="field-hint">Uses your device camera, nothing leaves your machine except into the credential itself.</p>
+
+    ${FIELD_GROUPS.map(group => `
+      <div class="section-title">${group.title}</div>
+      ${group.fields.map(f => `
+        <div class="field">
+          <label>${FIELD_LABELS[f] || f}</label>
+          ${fieldInputHtml(f, id[f])}
+          ${FIELD_HINTS[f] ? `<p class="field-hint">${FIELD_HINTS[f]}</p>` : ""}
+        </div>
+      `).join("")}
+    `).join("")}
   `;
   $("#btn-save-identity").addEventListener("click", saveIdentity);
+  $("#btn-open-camera").addEventListener("click", openCamera);
+  $("#btn-capture-photo").addEventListener("click", capturePhoto);
+}
+
+async function openCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+    const video = $("#camera-video");
+    video.srcObject = stream;
+    video.style.display = "block";
+    $("#photo-preview").style.display = "none";
+    $("#btn-open-camera").style.display = "none";
+    $("#btn-capture-photo").style.display = "block";
+  } catch (err) {
+    alert("Couldn't access the camera: " + err.message + ". You can skip this and keep the existing photo.");
+  }
+}
+
+function capturePhoto() {
+  const video = $("#camera-video");
+  const canvas = $("#camera-canvas");
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext("2d").drawImage(video, 0, 0);
+  capturedFace = canvas.toDataURL("image/jpeg", 0.85);
+
+  video.srcObject.getTracks().forEach(t => t.stop());
+  video.style.display = "none";
+  $("#btn-capture-photo").style.display = "none";
+
+  const preview = $("#photo-preview");
+  preview.src = capturedFace;
+  preview.style.display = "block";
+  $("#btn-open-camera").textContent = "Retake photo";
+  $("#btn-open-camera").style.display = "block";
+}
+
+function setIdentityFormEnabled(enabled) {
+  document.querySelectorAll("#identity-body input, #identity-body select, #identity-body button").forEach(el => {
+    el.disabled = !enabled;
+  });
 }
 
 async function saveIdentity() {
   const fields = {};
-  document.querySelectorAll("#identity-body input[data-field]").forEach(input => {
-    fields[input.dataset.field] = input.value;
+  document.querySelectorAll("#identity-body [data-field]").forEach(el => {
+    fields[el.dataset.field] = el.dataset.dateField ? htmlDateToDdmmyyyy(el.value) : el.value;
   });
+  if (capturedFace) fields.face = capturedFace;
 
-  $("#btn-save-identity").disabled = true;
-  $("#restart-banner").classList.add("show");
-  document.querySelectorAll("#identity-body input").forEach(i => i.disabled = true);
+  setIdentityFormEnabled(false);
+  const banner = $("#restart-banner");
+  banner.className = "restart-banner show";
+  banner.innerHTML = `<span class="spinner"></span> Saving…`;
 
   try {
     const res = await fetch("/api/identity", {
@@ -383,14 +504,45 @@ async function saveIdentity() {
     });
     const data = await res.json();
     if (!data.ok) {
-      alert("Save failed: " + data.error);
+      banner.className = "restart-banner show error";
+      banner.textContent = "Save failed: " + data.error;
+      setIdentityFormEnabled(true);
+      return;
     }
+    pollRestartStatus();
   } catch (err) {
-    alert("Save failed: " + err);
-  } finally {
-    $("#restart-banner").classList.remove("show");
-    document.querySelectorAll("#identity-body input").forEach(i => i.disabled = false);
-    $("#btn-save-identity").disabled = false;
+    banner.className = "restart-banner show error";
+    banner.textContent = "Save failed: " + err;
+    setIdentityFormEnabled(true);
+  }
+}
+
+async function pollRestartStatus() {
+  let status;
+  try {
+    status = await (await fetch("/api/identity/status")).json();
+  } catch (err) {
+    setTimeout(pollRestartStatus, 3000);
+    return;
+  }
+
+  const banner = $("#restart-banner");
+  $("#btn-issue").disabled = status.restarting;
+
+  if (status.restarting) {
+    banner.className = "restart-banner show";
+    banner.innerHTML = `<span class="spinner"></span> Restarting Certify — ${status.elapsed}s elapsed`
+      + (status.stuck ? " (unusually long, still waiting — check docker logs if this keeps going)" : "") + "…";
+    setTimeout(pollRestartStatus, 3000);
+  } else if (status.error) {
+    banner.className = "restart-banner show error";
+    banner.textContent = "Identity was saved, but the restart itself failed: " + status.error;
+    setIdentityFormEnabled(true);
+  } else {
+    banner.className = "restart-banner show success";
+    banner.textContent = "Saved — Certify is back up and using the new identity.";
+    setIdentityFormEnabled(true);
+    setTimeout(() => banner.classList.remove("show"), 5000);
   }
 }
 
@@ -495,7 +647,7 @@ async function issue() {
 
 $("#btn-issue").addEventListener("click", issue);
 renderFormats();
-loadIdentity();
+loadIdentity().then(pollRestartStatus);
 </script>
 </body>
 </html>

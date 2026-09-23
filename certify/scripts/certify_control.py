@@ -1,14 +1,25 @@
 """
-Restarts the local Certify container and waits for it to come back healthy.
+Restarts the local Certify container in the background and exposes its
+progress so a UI can show a live "still restarting" state instead of either
+blocking for minutes or reporting a false failure.
 
 Needed after editing the identity CSV: the bundled data-provider plugin
 loads the file once at container startup and doesn't re-read it per
 request, so an edit only takes effect after a restart. Confirmed by testing
 directly - editing the file alone did not change what got issued; a
 restart did.
+
+Boot time under Rosetta emulation depends heavily on host load, not just
+the container itself - seen anywhere from ~2 to ~9 minutes for the same
+image on the same machine. A blocking call with a fixed timeout has no good
+answer for "still going, just slow" - it either blocks the caller for
+minutes or has to guess a cutoff and sometimes guesses wrong. Polling this
+module's status instead lets the caller show real progress and only call it
+a problem once it's actually been too long.
 """
 import logging
 import subprocess
+import threading
 import time
 
 import requests
@@ -17,33 +28,58 @@ logger = logging.getLogger(__name__)
 
 CONTAINER_NAME = "docker-compose-certify-1"
 HEALTH_URL = "http://localhost:8090/v1/certify/.well-known/did.json"
+STUCK_AFTER = 900  # seconds - past this, it's a real problem, not "just slow"
+
+_lock = threading.Lock()
+_state = {"restarting": False, "healthy": True, "started_at": None, "error": None}
 
 
-def restart_certify(timeout: int = 300, poll_interval: int = 5, warmup: int = 10) -> bool:
-    """Returns True once Certify is healthy again, False if it didn't come
-    back within `timeout` seconds. Raises only if the restart command itself
-    fails to run (e.g. Docker isn't up) - a slow-to-heal container is
-    reported as a clean False, not an exception.
+def get_status() -> dict:
+    with _lock:
+        status = dict(_state)
+    if status["restarting"] and status["started_at"]:
+        status["elapsed"] = round(time.time() - status["started_at"])
+        status["stuck"] = status["elapsed"] > STUCK_AFTER
+    else:
+        status["elapsed"] = 0
+        status["stuck"] = False
+    return status
 
-    Boot time under Rosetta emulation varies a lot (seen anywhere from ~2 to
-    ~5 minutes for the same image), hence the generous default timeout. The
-    `warmup` pause after the health check first passes exists because the
-    health endpoint itself is cheap, but the first real issuance request
-    right after a restart does actual key-loading work and can still time
-    out for a few seconds even once Certify reports healthy.
-    """
-    subprocess.run(["docker", "restart", CONTAINER_NAME], check=True, capture_output=True, timeout=30)
 
-    deadline = time.time() + timeout
-    while time.time() < deadline:
+def _run(poll_interval: int, warmup: int):
+    try:
+        subprocess.run(["docker", "restart", CONTAINER_NAME], check=True, capture_output=True, timeout=30)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        logger.exception("docker restart command itself failed")
+        with _lock:
+            _state.update(restarting=False, error=f"docker restart failed: {e}")
+        return
+
+    while True:
         try:
             r = requests.get(HEALTH_URL, timeout=5)
             if r.status_code == 200:
-                time.sleep(warmup)
-                return True
+                break
         except requests.exceptions.RequestException:
             pass
         time.sleep(poll_interval)
 
-    logger.error("certify did not become healthy within %ss of restart", timeout)
-    return False
+    # health endpoint is cheap; the first real signing request right after a
+    # restart is not, so give it a moment before declaring done
+    time.sleep(warmup)
+    with _lock:
+        _state.update(restarting=False, healthy=True, error=None)
+
+
+def start_restart(poll_interval: int = 5, warmup: int = 10) -> bool:
+    """Kicks off a restart in the background and returns immediately.
+    Returns False (does nothing) if a restart is already in progress rather
+    than starting a second one against the same container."""
+    with _lock:
+        if _state["restarting"]:
+            return False
+        _state.update(restarting=True, healthy=False, started_at=time.time(), error=None)
+
+    thread = threading.Thread(target=_run, args=(poll_interval, warmup), daemon=True)
+    thread.start()
+    return True
