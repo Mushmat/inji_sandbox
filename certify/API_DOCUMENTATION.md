@@ -46,8 +46,8 @@ Certify can issue.
 ### `GET /.well-known/did.json`
 
 The issuer's DID document — used by verifiers to resolve the public key that
-signed a credential. See the README's "Known limitation" section: currently a
-placeholder host, functionally correct but not yet publicly hosted.
+signed a credential. Set to `did:web:mushmat.github.io:inji_sandbox`; see the
+README's "DID hosting" section for how it gets published.
 
 ### `POST /credential-configurations`
 
