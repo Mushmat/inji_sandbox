@@ -364,6 +364,18 @@ const FIELD_GROUPS = [
   { title: "Farm details", fields: ["farmerID", "landArea", "landOwnershipType", "primaryCropType", "secondaryCropType"] },
 ];
 
+// Which of the shared identity fields each format actually reads. ldp_vc and
+// vc+sd-jwt happen to use the same full set (our own choice when building
+// the SD-JWT config, not a requirement) - mso_mdoc genuinely only reads 3,
+// since mDL claims are name/birth_date/document_number, not the full farmer
+// profile, and it doesn't use a photo claim at all.
+const FORMAT_RELEVANT_FIELDS = {
+  "ldp_vc": ["fullName", "mobileNumber", "dateOfBirth", "gender", "state", "district", "villageOrTown", "postalCode", "landArea", "landOwnershipType", "primaryCropType", "secondaryCropType", "farmerID"],
+  "vc+sd-jwt": ["fullName", "mobileNumber", "dateOfBirth", "gender", "state", "district", "villageOrTown", "postalCode", "landArea", "landOwnershipType", "primaryCropType", "secondaryCropType", "farmerID"],
+  "mso_mdoc": ["fullName", "dateOfBirth", "farmerID"],
+};
+const FORMAT_USES_PHOTO = { "ldp_vc": true, "vc+sd-jwt": true, "mso_mdoc": false };
+
 const $ = (sel) => document.querySelector(sel);
 
 const issuedResults = {}; // format id -> last result issued for it, this session
@@ -380,6 +392,7 @@ function renderFormats() {
       selectedFormat = el.dataset.fmt;
       renderFormats();
       showResultForSelectedFormat();
+      renderIdentityForm();
     });
   });
 }
@@ -428,6 +441,7 @@ function fieldInputHtml(f, value) {
 }
 
 let capturedFace = null; // set once the user captures a new photo; null = keep existing
+let currentIdentity = null; // last-fetched identity data, kept so switching formats can re-render without a refetch
 
 async function loadIdentity() {
   const res = await fetch("/api/identity");
@@ -437,14 +451,30 @@ async function loadIdentity() {
     return;
   }
   identityFields = data.fields;
-  const id = data.identity;
+  currentIdentity = data.identity;
+  renderIdentityForm();
+}
+
+// Only shows the fields the currently-selected format actually reads, not
+// the full 13-field farmer profile regardless of what you picked. Saving
+// still only touches the fields visible here - anything hidden keeps
+// whatever value it already had in the CSV.
+function renderIdentityForm() {
+  if (!currentIdentity) return;
+  const id = currentIdentity;
   capturedFace = null;
+
+  const relevant = FORMAT_RELEVANT_FIELDS[selectedFormat] || identityFields;
+  const showPhoto = FORMAT_USES_PHOTO[selectedFormat];
+  const formatName = FORMATS.find(f => f.id === selectedFormat).name;
 
   $("#identity-body").innerHTML = `
     <button class="btn-primary" id="btn-save-identity">Save &amp; restart issuer</button>
     <div class="restart-banner" id="restart-banner"></div>
+    <p class="field-hint" style="margin-top:10px;">Showing only the fields <b>${formatName}</b> actually uses. Other saved fields aren't affected by this save.</p>
 
-    <div class="section-title" style="margin-top:14px;">Photo</div>
+    ${showPhoto ? `
+    <div class="section-title" style="margin-top:10px;">Photo</div>
     <div class="photo-box">
       <img id="photo-preview" src="${id.face || ''}" style="${id.face ? '' : 'display:none;'}">
       <video id="camera-video" autoplay playsinline muted style="display:none;"></video>
@@ -455,21 +485,28 @@ async function loadIdentity() {
       <button class="btn-secondary" id="btn-capture-photo" type="button" style="display:none;">Capture</button>
     </div>
     <p class="field-hint">Uses your device camera, nothing leaves your machine except into the credential itself.</p>
+    ` : ""}
 
-    ${FIELD_GROUPS.map(group => `
-      <div class="section-title">${group.title}</div>
-      ${group.fields.map(f => `
-        <div class="field">
-          <label>${FIELD_LABELS[f] || f}</label>
-          ${fieldInputHtml(f, id[f])}
-          ${FIELD_HINTS[f] ? `<p class="field-hint">${FIELD_HINTS[f]}</p>` : ""}
-        </div>
-      `).join("")}
-    `).join("")}
+    ${FIELD_GROUPS.map(group => {
+      const groupFields = group.fields.filter(f => relevant.includes(f));
+      if (groupFields.length === 0) return "";
+      return `
+        <div class="section-title">${group.title}</div>
+        ${groupFields.map(f => `
+          <div class="field">
+            <label>${FIELD_LABELS[f] || f}</label>
+            ${fieldInputHtml(f, id[f])}
+            ${FIELD_HINTS[f] ? `<p class="field-hint">${FIELD_HINTS[f]}</p>` : ""}
+          </div>
+        `).join("")}
+      `;
+    }).join("")}
   `;
   $("#btn-save-identity").addEventListener("click", saveIdentity);
-  $("#btn-open-camera").addEventListener("click", openCamera);
-  $("#btn-capture-photo").addEventListener("click", capturePhoto);
+  if (showPhoto) {
+    $("#btn-open-camera").addEventListener("click", openCamera);
+    $("#btn-capture-photo").addEventListener("click", capturePhoto);
+  }
 }
 
 async function openCamera() {
