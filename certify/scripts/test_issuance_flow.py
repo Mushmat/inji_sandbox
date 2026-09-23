@@ -1,14 +1,10 @@
 #!/usr/bin/env python3
 """
-Runs the full Inji Certify OpenID4VCI issuance flow end-to-end against a
-locally-running Certify instance (see ../docker-compose/), using MOSIP
-Collab's public mock eSignet as the authorization server.
+Runs the full OpenID4VCI issuance flow against a local Certify instance
+(see ../docker-compose/), using MOSIP Collab's public mock eSignet to log in.
 
-This is the same flow MOSIP's own Postman collections automate
-(docs/postman-collections/ in the inji-certify repo) - this script
-reproduces it standalone so it can be run from the command line as a real
-regression/smoke test, and doubles as the project's test data / test case
-evidence for FR3 (issuance flow) and FR6 (multi-format support).
+Same flow as MOSIP's Postman collections, just scripted so it can run from
+the command line as a smoke test.
 
 Usage:
     pip install -r requirements.txt
@@ -32,13 +28,11 @@ CERTIFY_URL = "http://localhost:8090/v1/certify"
 CLIENT_ID = "wallet-demo"
 REDIRECT_URI = "http://localhost:3004/redirect"
 INDIVIDUAL_ID = "2154189532"
-AUD_URL = "http://certify-nginx:80"   # must match mosip_certify_domain_url in docker-compose.yaml
-SCOPE = "mock_identity_vc_ldp"        # the only scope registered for wallet-demo on Collab; both
-                                       # credential formats share it, disambiguated by format/vct
+AUD_URL = "http://certify-nginx:80"   # has to match mosip_certify_domain_url in docker-compose.yaml
+SCOPE = "mock_identity_vc_ldp"        # only scope wallet-demo has on Collab, both formats share it
 
-# Publicly-shared demo client key from MOSIP's own inji-certify repo
-# (docs/postman-collections/inji-certify-with-mock-identity.postman_environment.json)
-# - not a secret, this is the intended way to exercise Collab's public sandbox.
+# Demo client key MOSIP publishes in their own repo for testing against Collab.
+# Not a secret, it's meant to be used like this.
 PRIVATE_KEY_JWK = {
     "kty": "RSA",
     "n": "r4uINbmHn6cF70WcrCCKHZY5K2_3TrnnltgjUref6x3I5fHUJDAbVEyAKeroaivgPiGdWrzlke3Or_u7aNefQ0MSodlWWWF6gxxq25pTjmRquglGj8hsfLe5sY61mN9K-x_u62jgvrYKdoQMZO5EYOxga6mVfTu03J6uS0ej5JtwedJb5WvQkfl0P5u-ld77r9PyTUhn9HOAh_3k1vAZeXzv5ae7wz47gvAReWl-N_dds3wqrdF0VZkaAdvU4K4yYHxqV2AzBpW_O6TTaHVdSPjvBnbHGPJwB12qllbhDOn4nvRzaxy9i9dpJtgLnVVPygtGJ7YggmBD-uv16oGxw8_1mAwLowA0fDc-TttNAfAPTe6W9_28yxRGyFTX4WaEVw9vqDBd7Pd4rdB_Bk_KFzBVDQKj3AFB1swWAGfPssferbWsPdMAACAO4x9LZGimCyRjbL04CQZYXC18o-VFTBKeB23n80ZDIYJ2oABO_qXCAA4CyEX-JOKh4nU1piDPVz_yAgPBBWPnZhaOUm6oonw1apuwg191zgUNlME-vNdOYov1wSUNAoHa5hlKoLAkMvL9oxhHIpuruH3x2NEjhtgDgh-IcqK3GNnr0eJ_ySNKJSebTQ8u_BVOsNeoXHcPkD-dIAz6CYg-ehSavwq8OeKtETF48UWkEZh4PEr6q9k",
@@ -104,9 +98,8 @@ def main():
         print(r.text)
         sys.exit(1)
     transaction_id = resp_json["response"]["transactionId"]
-    # hash must be computed over the compact JSON of the 'response' object, in the
-    # same key order the server sent it (Python dicts preserve json.loads order,
-    # matching JS JSON.parse behaviour)
+    # hash the response exactly as the server sent it (same key order) or the
+    # server-side check on the next call won't match
     compact = json.dumps(resp_json["response"], separators=(",", ":"))
     oauth_details_hash = b64url(hashlib.sha256(compact.encode()).digest())
     csrf = session.cookies.get("XSRF-TOKEN") or csrf
@@ -117,7 +110,7 @@ def main():
         "oauth-details-hash": oauth_details_hash,
     }
 
-    # 4. send-otp - mock IDP always accepts OTP 111111 below
+    # 4. send-otp - mock IDP's OTP is always 111111
     body = {
         "requestTime": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
         "request": {
@@ -213,7 +206,7 @@ def main():
         headers={"typ": "openid4vci-proof+jwt", "jwk": holder_pub_jwk},
     )
 
-    # 9. request the credential itself
+    # 9. request the credential
     cred_body = {"format": vc_format}
     if vc_format == "ldp_vc":
         cred_body["credential_definition"] = {

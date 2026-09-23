@@ -345,15 +345,10 @@ CREATE INDEX IF NOT EXISTS idx_iar_session_expires_at ON certify.iar_session(exp
 CREATE INDEX IF NOT EXISTS idx_iar_session_authorization_code_used ON certify.iar_session(authorization_code, is_code_used) WHERE authorization_code IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_iar_session_scope ON certify.iar_session(scope);
 CREATE INDEX IF NOT EXISTS idx_iar_session_transaction_id ON certify.iar_session(transaction_id);
--- FarmerCredentialSdJwt: SD-JWT VC variant of the same Farmer Credential,
--- added by Claude (issuer workstream) so a fresh docker-compose stack seeds
--- both mandatory credential formats (FR6) automatically. Reuses the same
--- mock_identity_vc_ldp scope as FarmerCredential above -- Certify disambiguates
--- by credential_format/vct at request time, not by scope; the scope itself is
--- what's registered upstream on the authorization server (MOSIP Collab's mock
--- eSignet), which we don't control, so a new scope name here would not
--- authorize correctly. See certify/WORKING_SETUP.md in the planning notes for
--- the full story.
+-- SD-JWT version of the Farmer Credential (second mandatory format).
+-- Same scope as FarmerCredential on purpose -- the auth server only
+-- recognizes that scope, so Certify tells the two apart by format/vct
+-- instead.
 INSERT INTO certify.credential_config (
     credential_config_key_id, config_id, status, vc_template, doctype, sd_jwt_vct,
     context, credential_type, credential_format, did_url, key_manager_app_id,
@@ -372,11 +367,11 @@ INSERT INTO certify.credential_config (
     NULL,
     NULL,
     'vc+sd-jwt',
-    'did:web:8398-2405-201-1029-3025-e142-9ad3-e1f2-f543.ngrok-free.app',  -- placeholder, see setup/INSTALL.md DID hosting section
+    'did:web:8398-2405-201-1029-3025-e142-9ad3-e1f2-f543.ngrok-free.app',  -- placeholder DID host, needs a real one before a real demo
     'CERTIFY_VC_SIGN_ED25519',
     'ED25519_SIGN',
     'EdDSA',
-    NULL,  -- must be NULL for vc+sd-jwt format, Certify's own validator requires this
+    NULL,  -- has to be NULL for vc+sd-jwt, Certify rejects it otherwise
     '$.credentialSubject.farmerID',
     '[{"name": "Farmer Verifiable Credential (SD-JWT)", "locale": "en", "logo": {"url": "https://mosip.github.io/inji-config/logos/agro-vertias-logo.png", "alt_text": "Farmer Credential Logo"}, "background_color": "#12107c", "text_color": "#FFFFFF", "background_image": {"uri": "https://mosip.github.io/inji-config/logos/agro-vertias-logo.png"}}]'::JSONB,
     ARRAY['fullName','mobileNumber','dateOfBirth','gender','state','district','villageOrTown','postalCode','landArea','landOwnershipType','primaryCropType','secondaryCropType','farmerID'],
