@@ -1,0 +1,56 @@
+services:
+  database:
+    image: 'postgres:15'
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - ./certify_init.sql:/docker-entrypoint-initdb.d/certify_init.sql
+    networks:
+      - network
+    ports:
+      - "5433:5432"
+
+  certify:
+    image: injistack/inji-certify-with-plugins:0.14.0
+    user: root
+    ports:
+      - 8090:8090
+    environment:
+      - container_user=mosip
+      - active_profile_env=default, csvdp-farmer
+      - SPRING_CONFIG_NAME=certify
+      - SPRING_CONFIG_LOCATION=/home/mosip/config/
+      - enable_certify_artifactory=false
+      - download_hsm_client=false
+      - mosip_certify_domain_url=http://certify-nginx:80
+    volumes:
+      - ./config/certify-default.properties:/home/mosip/config/certify-default.properties
+      - ./config/certify-csvdp-farmer.properties:/home/mosip/config/certify-csvdp-farmer.properties
+      - ./data/CERTIFY_PKCS12:/home/mosip/CERTIFY_PKCS12
+      - ./config/farmer_identity_data.csv:/home/mosip/config/farmer_identity_data.csv
+      - ./config/vp_request_config.json:/home/mosip/config/vp_request_config.json
+    networks:
+      - network
+    depends_on:
+      - database
+
+  certify-nginx:
+    image: nginx:stable
+    ports:
+      - 8091:80
+    volumes:
+      - ./certify-nginx.conf:/etc/nginx/conf.d/default.conf
+      - ./config/vp_request_config.json:/config/server/vp_request_config.json
+    networks:
+      - network
+    depends_on:
+      - certify
+
+networks:
+  network:
+    name: mosip_network
+    external: true
+
+volumes:
+  postgres-data:
