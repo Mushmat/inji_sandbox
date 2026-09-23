@@ -4,18 +4,30 @@ Toy demo server for the issuer piece - not the team's playground UI (that's
 being built separately). This is just here to show the issuance flow
 working, step by step, without needing Postman or reading terminal output.
 
+The UI is deliberately simple. The backend underneath it (issuance_flow.py)
+is the real, tested issuer pipeline - this file is just a thin HTTP wrapper
+around it.
+
 Usage:
     pip install -r requirements.txt
     python3 server.py
     open http://localhost:5001
+
+Set DEMO_UI_DEBUG=1 to run with Flask's debugger and auto-reload while
+working on this file. Leave it off otherwise - the debugger can execute
+arbitrary code if it's ever reachable from outside your machine.
 """
-import sys
+import logging
 import os
+import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
 from flask import Flask, jsonify, request, send_from_directory
-from issuance_flow import run_issuance
+from issuance_flow import run_issuance, VALID_FORMATS
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__, static_folder=".", static_url_path="")
 
@@ -25,14 +37,30 @@ def index():
     return send_from_directory(".", "index.html")
 
 
+@app.route("/healthz")
+def healthz():
+    return jsonify({"status": "ok"})
+
+
 @app.route("/api/issue", methods=["POST"])
 def issue():
-    vc_format = request.json.get("format", "ldp_vc")
-    if vc_format not in ("ldp_vc", "vc+sd-jwt"):
-        return jsonify({"ok": False, "error": "unknown format"}), 400
-    result = run_issuance(vc_format)
-    return jsonify(result)
+    body = request.get_json(silent=True) or {}
+    vc_format = body.get("format", "ldp_vc")
+
+    if vc_format not in VALID_FORMATS:
+        return jsonify({"ok": False, "error": f"format must be one of {VALID_FORMATS}"}), 400
+
+    try:
+        result = run_issuance(vc_format)
+    except Exception:
+        # run_issuance already catches network/response errors and returns a
+        # clean result - this is only a safety net for anything it doesn't.
+        logger.exception("unexpected error running issuance flow")
+        return jsonify({"ok": False, "error": "internal error, check server logs"}), 500
+
+    return jsonify(result), (200 if result["ok"] else 502)
 
 
 if __name__ == "__main__":
-    app.run(port=5001, debug=True)
+    debug = os.environ.get("DEMO_UI_DEBUG") == "1"
+    app.run(port=5001, debug=debug)

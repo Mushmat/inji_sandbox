@@ -44,6 +44,12 @@ credential configurations: `FarmerCredential` (`ldp_vc`) and
 Stop with `docker-compose down` (keeps data) or `docker-compose down -v`
 (wipes and re-seeds clean next time).
 
+All three services have real health checks (Postgres via `pg_isready`,
+Certify and its Nginx via the well-known endpoint), and `depends_on` is
+wired to wait for those, not just for the container to start. So
+`docker-compose up -d` will sit there until Certify is actually ready
+rather than returning immediately — that's expected, not a hang.
+
 ## What's running
 
 Certify + its Nginx + Postgres only — this repo's Wallet and Verify pieces
@@ -93,12 +99,34 @@ Exit code 0 and a `"credential": ...` payload in the output means it worked.
 See [`API_DOCUMENTATION.md`](API_DOCUMENTATION.md) for example output and a
 breakdown of what each flow step does.
 
+For real assertions rather than eyeballing output, run:
+
+```bash
+python3 -m unittest test_credential_shape.py -v
+```
+
+11 checks: both formats issue successfully, every step returns 200, the
+JSON-LD proof type and issuer DID are correct, the SD-JWT header/vct/holder
+binding are correct, `farmerID` is actually selectively disclosable (absent
+from the plaintext payload, only reachable through its disclosure), and a
+bad format or an unreachable auth server both fail cleanly instead of
+throwing.
+
+All of this — `issuance_flow.py`, the module both scripts and the demo UI
+below share — treats network calls like they can fail, because they can:
+every request has a timeout, and any network or unexpected-response error
+comes back as a normal `{"ok": False, "error": ...}` result instead of an
+uncaught exception.
+
 ## Demo UI
 
 `demo-ui/` is a small toy page for showing this working without reading
 terminal output — two buttons, one per format, shows the protocol steps and
 the resulting credential. Not the team's playground UI, just a quick way to
-demo the issuer piece. See [`demo-ui/README.md`](demo-ui/README.md).
+demo the issuer piece. The page itself is intentionally simple; the backend
+behind it is the same tested `issuance_flow.py`, wrapped in a small Flask
+app with a `/healthz` endpoint, JSON error responses instead of stack traces,
+and debug mode off by default. See [`demo-ui/README.md`](demo-ui/README.md).
 
 ## DID hosting
 

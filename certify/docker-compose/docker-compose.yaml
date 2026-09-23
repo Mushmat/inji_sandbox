@@ -1,6 +1,7 @@
 services:
   database:
     image: 'postgres:15'
+    restart: unless-stopped
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
@@ -10,10 +11,16 @@ services:
       - network
     ports:
       - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   certify:
     image: injistack/inji-certify-with-plugins:0.14.0
     user: root
+    restart: unless-stopped
     ports:
       - 8090:8090
     environment:
@@ -33,10 +40,18 @@ services:
     networks:
       - network
     depends_on:
-      - database
+      database:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8090/v1/certify/.well-known/did.json"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
 
   certify-nginx:
     image: nginx:stable
+    restart: unless-stopped
     ports:
       - 8091:80
     volumes:
@@ -45,7 +60,13 @@ services:
     networks:
       - network
     depends_on:
-      - certify
+      certify:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:80/.well-known/did.json"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
 networks:
   network:

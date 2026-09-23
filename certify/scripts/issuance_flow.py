@@ -7,6 +7,7 @@ Talks to MOSIP Collab's public mock eSignet for login, then requests a
 credential from a local Certify instance (see ../docker-compose/).
 """
 import json
+import logging
 import time
 import uuid
 import base64
@@ -18,6 +19,8 @@ import jwt as pyjwt
 from jwt.algorithms import RSAAlgorithm
 from cryptography.hazmat.primitives.asymmetric import rsa
 
+logger = logging.getLogger(__name__)
+
 AUTH_SERVER = "https://esignet-mock.collab.mosip.net/v1/esignet"
 CERTIFY_URL = "http://localhost:8090/v1/certify"
 CLIENT_ID = "wallet-demo"
@@ -25,6 +28,8 @@ REDIRECT_URI = "http://localhost:3004/redirect"
 INDIVIDUAL_ID = "2154189532"
 AUD_URL = "http://certify-nginx:80"   # has to match mosip_certify_domain_url in docker-compose.yaml
 SCOPE = "mock_identity_vc_ldp"        # only scope wallet-demo has on Collab, both formats share it
+VALID_FORMATS = ("ldp_vc", "vc+sd-jwt")
+REQUEST_TIMEOUT = 15  # seconds, applied to every call out to eSignet or Certify
 
 # Demo client key MOSIP publishes in their own repo for testing against Collab.
 # Not a secret, it's meant to be used like this.
@@ -58,9 +63,32 @@ def decode_jwt_part(part: str) -> dict:
 
 def run_issuance(vc_format: str) -> dict:
     """Runs the full flow and returns a dict with every step taken, plus the
-    result. Never raises - failures show up as a step with ok=False and the
-    response body attached, so callers (CLI or web) can just display it."""
+    result. Never raises - a bad format, a network drop, or Collab being down
+    all come back as a normal {"ok": False, "error": ...} result instead of
+    an exception, so callers (CLI or web) never have to guard this in a
+    try/except of their own."""
+    if vc_format not in VALID_FORMATS:
+        return {
+            "format": vc_format,
+            "steps": [],
+            "ok": False,
+            "error": f"unknown format {vc_format!r}, expected one of {VALID_FORMATS}",
+            "credential": None,
+        }
+
     steps = []
+
+    try:
+        return _run_issuance(vc_format, steps)
+    except requests.exceptions.RequestException as e:
+        logger.exception("network error during issuance flow")
+        return {"format": vc_format, "steps": steps, "ok": False, "error": f"network error: {e}", "credential": None}
+    except (KeyError, ValueError, IndexError) as e:
+        logger.exception("unexpected response shape during issuance flow")
+        return {"format": vc_format, "steps": steps, "ok": False, "error": f"unexpected response: {e}", "credential": None}
+
+
+def _run_issuance(vc_format: str, steps: list) -> dict:
     session = requests.Session()
 
     def record(name, method, url, resp, extra=None):
@@ -84,7 +112,7 @@ def run_issuance(vc_format: str) -> dict:
         return {"format": vc_format, "steps": steps, "ok": False, "error": msg, "credential": None}
 
     # 1. CSRF token
-    r = session.get(f"{AUTH_SERVER}/csrf/token")
+    r = session.get(f"{AUTH_SERVER}/csrf/token", timeout=REQUEST_TIMEOUT)
     record("Get CSRF token", "GET", f"{AUTH_SERVER}/csrf/token", r)
     csrf = session.cookies.get("XSRF-TOKEN")
 
@@ -110,7 +138,7 @@ def run_issuance(vc_format: str) -> dict:
         },
     }
     r = session.post(f"{AUTH_SERVER}/authorization/v2/oauth-details",
-                      json=body, headers={"X-XSRF-TOKEN": csrf})
+                      json=body, headers={"X-XSRF-TOKEN": csrf}, timeout=REQUEST_TIMEOUT)
     if not record("Start authorization (oauth-details)", "POST",
                    f"{AUTH_SERVER}/authorization/v2/oauth-details", r):
         return fail("oauth-details failed")
@@ -138,7 +166,7 @@ def run_issuance(vc_format: str) -> dict:
             "captchaToken": "dummy",
         },
     }
-    r = session.post(f"{AUTH_SERVER}/authorization/send-otp", json=body, headers=auth_headers)
+    r = session.post(f"{AUTH_SERVER}/authorization/send-otp", json=body, headers=auth_headers, timeout=REQUEST_TIMEOUT)
     if not record("Send OTP", "POST", f"{AUTH_SERVER}/authorization/send-otp", r):
         return fail("send-otp failed")
 
@@ -153,7 +181,7 @@ def run_issuance(vc_format: str) -> dict:
             "challengeList": [{"authFactorType": "OTP", "challenge": "111111", "format": "alpha-numeric"}],
         },
     }
-    r = session.post(f"{AUTH_SERVER}/authorization/v3/authenticate", json=body, headers=auth_headers)
+    r = session.post(f"{AUTH_SERVER}/authorization/v3/authenticate", json=body, headers=auth_headers, timeout=REQUEST_TIMEOUT)
     if not record("Authenticate (OTP)", "POST", f"{AUTH_SERVER}/authorization/v3/authenticate", r):
         return fail("authenticate failed")
 
@@ -164,7 +192,7 @@ def run_issuance(vc_format: str) -> dict:
         "requestTime": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
         "request": {"transactionId": transaction_id, "acceptedClaims": [], "permittedAuthorizeScopes": [SCOPE]},
     }
-    r = session.post(f"{AUTH_SERVER}/authorization/auth-code", json=body, headers=auth_headers)
+    r = session.post(f"{AUTH_SERVER}/authorization/auth-code", json=body, headers=auth_headers, timeout=REQUEST_TIMEOUT)
     if not record("Get authorization code", "POST", f"{AUTH_SERVER}/authorization/auth-code", r):
         return fail("auth-code failed")
     code = r.json()["response"]["code"]
@@ -192,7 +220,7 @@ def run_issuance(vc_format: str) -> dict:
         "client_assertion": client_assertion,
         "code_verifier": verifier,
     }
-    r = session.post(token_endpoint, data=form)
+    r = session.post(token_endpoint, data=form, timeout=REQUEST_TIMEOUT)
     if not record("Exchange code for access token", "POST", token_endpoint, r):
         return fail("token exchange failed")
     tok = r.json()
@@ -228,6 +256,7 @@ def run_issuance(vc_format: str) -> dict:
         f"{CERTIFY_URL}/issuance/credential",
         json=cred_body,
         headers={"Authorization": f"Bearer {access_token}"},
+        timeout=REQUEST_TIMEOUT,
     )
     if not record("Request the credential", "POST", f"{CERTIFY_URL}/issuance/credential", r):
         return fail("credential request failed")
