@@ -37,6 +37,12 @@ Certify can issue.
       "scope": "mock_identity_vc_ldp",
       "vct": "FarmerCredentialSdJwt",
       "credential_signing_alg_values_supported": ["EdDSA"]
+    },
+    "MobileDrivingLicense": {
+      "format": "mso_mdoc",
+      "scope": "mock_identity_vc_ldp",
+      "doctype": "org.iso.18013.5.1.mDL",
+      "credential_signing_alg_values_supported": ["ES256"]
     }
   }
 }
@@ -93,6 +99,15 @@ SD-JWT" and rejects the request with a misleading
 `vc_sd_jwt_mandatory_fields_missing` error that reads like `vct` or
 `signatureAlgo` is missing, even when both are present correctly.
 
+For `mso_mdoc` it's the opposite: `signatureCryptoSuite` is **required**
+(`EcdsaSecp256r1Signature2019` for the `ES256`/`EC_SECP256R1_SIGN` key we
+use), `sdJwtVct`/`sdJwtClaims`/`credentialSubjectDefinition` must all be
+absent, and it needs its own fields — `doctype` (`org.iso.18013.5.1.mDL`) and
+`msoMdocClaims` (namespace → claim → display, note the namespace here is
+`org.iso.18013.5.1.mDL`, *with* the doctype suffix — different from the
+`vcTemplate`'s own namespace key `org.iso.18013.5.1`, *without* it; MOSIP's
+own test fixtures use this same inconsistency, not something we introduced).
+
 ### `POST /issuance/credential`
 
 The actual OpenID4VCI credential endpoint. Requires a Bearer access token
@@ -105,6 +120,9 @@ Request body differs slightly by format:
 
 // vc+sd-jwt
 {"format": "vc+sd-jwt", "vct": "FarmerCredentialSdJwt", "proof": {"proof_type": "jwt", "jwt": "..."}}
+
+// mso_mdoc
+{"format": "mso_mdoc", "doctype": "org.iso.18013.5.1.mDL", "proof": {"proof_type": "jwt", "jwt": "..."}}
 ```
 
 The holder proof JWT must include `aud` (Certify's own domain, matching
@@ -114,6 +132,14 @@ verifier requires `iat` unconditionally
 (`JwtProofValidator.DEFAULT_REQUIRED_CLAIMS = {"aud", "iat"}`), but a missing
 `iat` surfaces as `invalid_proof` / *"Error encountered during proof jwt
 parsing"* — worded like a parsing failure, not a missing-claim failure.
+
+**Holder key type depends on format.** `ldp_vc` and `vc+sd-jwt` both worked
+fine with an RSA holder key in the proof JWT's `jwk` header. `mso_mdoc`
+doesn't: it failed with `Unsupported curve for EC2 key type: null`, because
+mDoc device-key binding goes through COSE_Key, which only supports elliptic
+curve keys (EC2), not RSA. Fix: generate an EC P-256 key (`crv: "P-256"`) and
+sign the proof JWT with `ES256` instead of `RS256` when requesting `mso_mdoc`
+— everything else about the flow is identical.
 
 ## Authorization server (MOSIP Collab's mock eSignet)
 
@@ -179,3 +205,44 @@ disclosure for the selectively-disclosable `farmerID` claim:
 ```
 disclosure: ["<salt>", "farmerID", "987654321"]
 ```
+
+**mDoc/mDL** — the credential itself is base64url-encoded CBOR (not JSON);
+decoded, it's a genuine ISO 18013-5 `IssuerSigned` structure with a
+COSE_Sign1-signed MSO (including the X.509 signing cert chain) and the
+actual claims:
+```json
+{
+  "docType": "org.iso.18013.5.1.mDL",
+  "issuerSigned": {
+    "issuerAuth": "<COSE_Sign1: protected headers, X.509 cert chain, signature>",
+    "nameSpaces": {
+      "org.iso.18013.5.1": [
+        {"elementIdentifier": "family_name", "elementValue": "Cooper"},
+        {"elementIdentifier": "given_name", "elementValue": "Gorge"},
+        {"elementIdentifier": "birth_date", "elementValue": "25-05-1990"},
+        {"elementIdentifier": "document_number", "elementValue": "987654321"}
+      ]
+    }
+  }
+}
+```
+
+## Editable identity data (demo UI only)
+
+`demo-ui/server.py` exposes two extra endpoints backing the identity editor
+in the UI — not part of Certify itself, just our own convenience layer over
+the CSV file Certify's data-provider plugin reads.
+
+- `GET /api/identity` — returns the current editable fields for the one
+  identity the demo issues credentials for.
+- `POST /api/identity` — takes a JSON body of field → value, writes it back
+  to `farmer_identity_data.csv`, **then restarts the `certify` container**
+  and waits (up to 3 minutes) for it to report healthy before responding.
+
+The restart is required, not optional: the bundled `MockCSVDataProviderPlugin`
+loads the CSV once at container startup and doesn't re-read it per request —
+confirmed by testing directly (editing the file alone left the next issued
+credential unchanged; a restart picked up the edit). So this endpoint
+genuinely takes ~1-2 minutes; the UI shows a "restarting" state for exactly
+that reason, and callers should expect a slow response, not treat it as
+hung.

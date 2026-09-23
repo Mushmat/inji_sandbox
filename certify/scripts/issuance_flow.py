@@ -14,10 +14,11 @@ import base64
 import secrets
 import hashlib
 
+import cbor2
 import requests
 import jwt as pyjwt
-from jwt.algorithms import RSAAlgorithm
-from cryptography.hazmat.primitives.asymmetric import rsa
+from jwt.algorithms import RSAAlgorithm, ECAlgorithm
+from cryptography.hazmat.primitives.asymmetric import rsa, ec
 
 logger = logging.getLogger(__name__)
 
@@ -27,8 +28,9 @@ CLIENT_ID = "wallet-demo"
 REDIRECT_URI = "http://localhost:3004/redirect"
 INDIVIDUAL_ID = "2154189532"
 AUD_URL = "http://certify-nginx:80"   # has to match mosip_certify_domain_url in docker-compose.yaml
-SCOPE = "mock_identity_vc_ldp"        # only scope wallet-demo has on Collab, both formats share it
-VALID_FORMATS = ("ldp_vc", "vc+sd-jwt")
+SCOPE = "mock_identity_vc_ldp"        # only scope wallet-demo has on Collab, all three formats share it
+MDOC_DOCTYPE = "org.iso.18013.5.1.mDL"
+VALID_FORMATS = ("ldp_vc", "vc+sd-jwt", "mso_mdoc")
 REQUEST_TIMEOUT = 15  # seconds, applied to every call out to eSignet or Certify
 
 # Demo client key MOSIP publishes in their own repo for testing against Collab.
@@ -59,6 +61,30 @@ def pkce_pair():
 def decode_jwt_part(part: str) -> dict:
     padded = part + "=" * (-len(part) % 4)
     return json.loads(base64.urlsafe_b64decode(padded))
+
+
+def decode_mdoc(credential_b64url: str) -> dict:
+    """mDoc credentials are CBOR, not JSON - base64url-decode then CBOR-decode
+    to pull out the doctype and the actual claim values for display. Each
+    namespace element comes wrapped in a CBOR tag, hence the extra unwrap."""
+    padded = credential_b64url + "=" * (-len(credential_b64url) % 4)
+    raw = base64.urlsafe_b64decode(padded)
+    doc = cbor2.loads(raw)
+    issuer_signed = doc.get("issuerSigned", {})
+
+    claims = {}
+    for namespace, elements in issuer_signed.get("nameSpaces", {}).items():
+        namespace_claims = {}
+        for tagged in elements:
+            item = cbor2.loads(tagged.value) if hasattr(tagged, "value") else tagged
+            namespace_claims[item["elementIdentifier"]] = item["elementValue"]
+        claims[namespace] = namespace_claims
+
+    return {
+        "docType": doc.get("docType"),
+        "claims": claims,
+        "signed": issuer_signed.get("issuerAuth") is not None,
+    }
 
 
 def run_issuance(vc_format: str) -> dict:
@@ -227,17 +253,27 @@ def _run_issuance(vc_format: str, steps: list) -> dict:
     access_token = tok["access_token"]
     c_nonce = tok.get("c_nonce")
 
-    # 8. build the holder proof JWT - a fresh keypair per request, per spec
-    holder_priv = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    holder_pub_jwk = json.loads(RSAAlgorithm.to_jwk(holder_priv.public_key()))
-    holder_pub_jwk["alg"] = "RS256"
-    holder_pub_jwk["use"] = "sig"
-
+    # 8. build the holder proof JWT - a fresh keypair per request, per spec.
+    # mso_mdoc needs an EC P-256 device key (COSE_Key only supports EC2 for
+    # this), everything else uses RSA.
     now = int(time.time())
+    if vc_format == "mso_mdoc":
+        holder_priv = ec.generate_private_key(ec.SECP256R1())
+        holder_pub_jwk = json.loads(ECAlgorithm.to_jwk(holder_priv.public_key()))
+        holder_pub_jwk["alg"] = "ES256"
+        holder_pub_jwk["use"] = "sig"
+        proof_alg = "ES256"
+    else:
+        holder_priv = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        holder_pub_jwk = json.loads(RSAAlgorithm.to_jwk(holder_priv.public_key()))
+        holder_pub_jwk["alg"] = "RS256"
+        holder_pub_jwk["use"] = "sig"
+        proof_alg = "RS256"
+
     proof_jwt = pyjwt.encode(
         {"aud": AUD_URL, "nonce": c_nonce, "iss": CLIENT_ID, "iat": now, "exp": now + 600},
         holder_priv,
-        algorithm="RS256",
+        algorithm=proof_alg,
         headers={"typ": "openid4vci-proof+jwt", "jwk": holder_pub_jwk},
     )
 
@@ -248,8 +284,10 @@ def _run_issuance(vc_format: str, steps: list) -> dict:
             "type": ["VerifiableCredential", "FarmerCredential"],
             "@context": ["https://www.w3.org/2018/credentials/v1"],
         }
-    else:
+    elif vc_format == "vc+sd-jwt":
         cred_body["vct"] = "FarmerCredentialSdJwt"
+    else:
+        cred_body["doctype"] = MDOC_DOCTYPE
     cred_body["proof"] = {"proof_type": "jwt", "jwt": proof_jwt}
 
     r = requests.post(
@@ -263,7 +301,7 @@ def _run_issuance(vc_format: str, steps: list) -> dict:
 
     credential = r.json()["credential"]
     decoded = None
-    if vc_format != "ldp_vc" and isinstance(credential, str):
+    if vc_format == "vc+sd-jwt" and isinstance(credential, str):
         jwt_part, *disclosure_parts = credential.split("~")
         header_b64, payload_b64, _sig = jwt_part.split(".")
         decoded = {
@@ -271,6 +309,8 @@ def _run_issuance(vc_format: str, steps: list) -> dict:
             "payload": decode_jwt_part(payload_b64),
             "disclosures": [decode_jwt_part(d) for d in disclosure_parts if d],
         }
+    elif vc_format == "mso_mdoc" and isinstance(credential, str):
+        decoded = decode_mdoc(credential)
 
     return {
         "format": vc_format,

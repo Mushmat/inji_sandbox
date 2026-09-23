@@ -389,3 +389,47 @@ INSERT INTO certify.credential_config (
     NOW(),
     NULL
 );
+
+-- mDoc/mDL version of the same identity (third format, good-to-have FR9).
+-- Uses an EC P-256 device key for holder binding (COSE_Key only supports
+-- EC2), unlike the RSA holder keys the other two formats use.
+INSERT INTO certify.credential_config (
+    credential_config_key_id, config_id, status, vc_template, doctype, sd_jwt_vct,
+    context, credential_type, credential_format, did_url, key_manager_app_id,
+    key_manager_ref_id, signature_algo, signature_crypto_suite, sd_claim, display,
+    display_order, scope, cryptographic_binding_methods_supported,
+    credential_signing_alg_values_supported, proof_types_supported, credential_subject,
+    sd_jwt_claims, mso_mdoc_claims, plugin_configurations, credential_status_purpose,
+    qr_settings, qr_signature_algo, cr_dtimes, upd_dtimes
+) VALUES (
+    'MobileDrivingLicense',
+    gen_random_uuid()::VARCHAR(255),
+    'active',
+    'eyJuYW1lU3BhY2VzIjogeyJvcmcuaXNvLjE4MDEzLjUuMSI6IFt7ImRpZ2VzdElEIjogMCwgImVsZW1lbnRJZGVudGlmaWVyIjogImZhbWlseV9uYW1lIiwgImVsZW1lbnRWYWx1ZSI6ICIke2ZhbWlseU5hbWV9In0sIHsiZGlnZXN0SUQiOiAxLCAiZWxlbWVudElkZW50aWZpZXIiOiAiZ2l2ZW5fbmFtZSIsICJlbGVtZW50VmFsdWUiOiAiJHtnaXZlbk5hbWV9In0sIHsiZGlnZXN0SUQiOiAyLCAiZWxlbWVudElkZW50aWZpZXIiOiAiYmlydGhfZGF0ZSIsICJlbGVtZW50VmFsdWUiOiAiJHtkYXRlT2ZCaXJ0aH0ifSwgeyJkaWdlc3RJRCI6IDMsICJlbGVtZW50SWRlbnRpZmllciI6ICJkb2N1bWVudF9udW1iZXIiLCAiZWxlbWVudFZhbHVlIjogIiR7ZmFybWVySUR9In1dfSwgImRvY1R5cGUiOiAiJHtfZG9jdHlwZX0iLCAidmFsaWRpdHlJbmZvIjogeyJ2YWxpZEZyb20iOiAiJHtfdmFsaWRGcm9tfSIsICJ2YWxpZFVudGlsIjogIiR7X3ZhbGlkVW50aWx9In19',
+    'org.iso.18013.5.1.mDL',
+    NULL,
+    NULL,
+    NULL,
+    'mso_mdoc',
+    'did:web:mushmat.github.io:inji_sandbox',
+    'CERTIFY_VC_SIGN_EC_R1',
+    'EC_SECP256R1_SIGN',
+    'ES256',
+    'EcdsaSecp256r1Signature2019',
+    NULL,
+    '[{"name": "Mobile Driving License (mDoc)", "locale": "en", "logo": {"url": "https://mosip.github.io/inji-config/logos/agro-vertias-logo.png", "alt_text": "mDL Logo"}, "background_color": "#0b3d0b", "text_color": "#FFFFFF", "background_image": {"uri": "https://mosip.github.io/inji-config/logos/agro-vertias-logo.png"}}]'::JSONB,
+    ARRAY['family_name','given_name','birth_date','document_number'],
+    'mock_identity_vc_ldp',
+    ARRAY['cose_key'],
+    ARRAY['ES256'],
+    '{"jwt": {"proof_signing_alg_values_supported": ["RS256", "PS256", "ES256", "EdDSA"]}}'::JSONB,
+    NULL,
+    NULL,
+    '{"org.iso.18013.5.1.mDL": {"family_name": {"display": [{"name": "Family Name", "locale": "en"}]}, "given_name": {"display": [{"name": "Given Name", "locale": "en"}]}, "birth_date": {"display": [{"name": "Birth Date", "locale": "en"}]}, "document_number": {"display": [{"name": "Document Number", "locale": "en"}]}}}'::JSONB,
+    '[{"mosip.certify.mock.data-provider.csv.identifier-column": "id", "mosip.certify.mock.data-provider.csv.data-columns": "id,fullName,mobileNumber,dateOfBirth,gender,state,district,villageOrTown,postalCode,landArea,landOwnershipType,primaryCropType,secondaryCropType,face,farmerID,givenName,familyName", "mosip.certify.mock.data-provider.csv-registry-uri": "/home/mosip/config/farmer_identity_data.csv"}]'::JSONB,
+    ARRAY['revocation'],
+    NULL,
+    NULL,
+    NOW(),
+    NULL
+);

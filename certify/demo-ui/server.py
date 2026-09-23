@@ -25,6 +25,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
 from flask import Flask, jsonify, request, send_from_directory
 from issuance_flow import run_issuance, VALID_FORMATS
+from identity_store import read_identity, update_identity, EDITABLE_FIELDS
+from certify_control import restart_certify
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -59,6 +61,41 @@ def issue():
         return jsonify({"ok": False, "error": "internal error, check server logs"}), 500
 
     return jsonify(result), (200 if result["ok"] else 502)
+
+
+@app.route("/api/identity", methods=["GET"])
+def get_identity():
+    try:
+        return jsonify({"ok": True, "identity": read_identity(), "fields": EDITABLE_FIELDS})
+    except (OSError, ValueError) as e:
+        logger.exception("failed to read identity data")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/identity", methods=["POST"])
+def save_identity():
+    body = request.get_json(silent=True) or {}
+    if not body:
+        return jsonify({"ok": False, "error": "no fields provided"}), 400
+
+    try:
+        updated = update_identity(body)
+    except (OSError, ValueError) as e:
+        logger.exception("failed to write identity data")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+    # Certify caches this file at startup, so the edit only takes effect
+    # after a restart - this call blocks until it's healthy again, which is
+    # why the UI needs to show a "this takes about a minute" state for it.
+    healthy = restart_certify()
+    if not healthy:
+        return jsonify({
+            "ok": False,
+            "identity": updated,
+            "error": "identity saved, but Certify didn't come back healthy after restart - check docker logs",
+        }), 502
+
+    return jsonify({"ok": True, "identity": updated})
 
 
 if __name__ == "__main__":

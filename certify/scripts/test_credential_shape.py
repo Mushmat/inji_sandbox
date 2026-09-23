@@ -73,6 +73,28 @@ class SdJwtCredentialTest(unittest.TestCase):
         self.assertEqual(farmer_id_disclosure[2], "987654321")
 
 
+class MDocCredentialTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.result = run_issuance("mso_mdoc")
+
+    def test_flow_succeeded(self):
+        self.assertTrue(self.result["ok"], self.result.get("error"))
+
+    def test_doctype_and_signed(self):
+        decoded = self.result["credential_decoded"]
+        self.assertEqual(decoded["docType"], "org.iso.18013.5.1.mDL")
+        self.assertTrue(decoded["signed"])
+
+    def test_claims_present(self):
+        claims = self.result["credential_decoded"]["claims"]["org.iso.18013.5.1"]
+        for field in ("family_name", "given_name", "birth_date", "document_number"):
+            self.assertIn(field, claims)
+        # confirms the CSV columns actually got substituted, not left as
+        # literal "${...}" template text
+        self.assertNotIn("$", claims["family_name"])
+
+
 class InvalidInputTest(unittest.TestCase):
     def test_unknown_format_fails_cleanly(self):
         result = run_issuance("not-a-real-format")

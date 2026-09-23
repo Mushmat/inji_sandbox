@@ -2,12 +2,16 @@
 
 Owns the issuer side of the playground: standing up Inji Certify, configuring
 credential formats, and proving the OpenID4VCI issuance flow works. Covers
-FR1 (issuer side), FR3, and FR6 from the project requirements.
+FR1 (issuer side), FR3, and FR6 from the mandatory requirements, plus FR9
+(third credential format) from the good-to-haves.
 
 ## Prerequisites
 
 - Docker + Docker Compose
-- Python 3.9+ (for the test script)
+- Python 3.9+, with a virtualenv (`python3 -m venv .venv` in this directory,
+  `source .venv/bin/activate`, then `pip install -r scripts/requirements.txt
+  -r demo-ui/requirements.txt`) — Homebrew's Python won't let you `pip
+  install` system-wide (PEP 668), so a venv is required, not optional
 - On Apple Silicon: `export DOCKER_DEFAULT_PLATFORM=linux/amd64` before
   running Docker Compose — the upstream Certify images aren't published for
   arm64 yet, so this runs them under emulation. Slightly slower to boot,
@@ -26,7 +30,7 @@ First boot takes 3-6 minutes (key generation, DB migrations, Rosetta
 emulation on Apple Silicon). Watch it with:
 
 ```bash
-docker logs docker-compose-injistack-certify-1 -f
+docker logs docker-compose-certify-1 -f
 ```
 
 Wait for `===== INJI Certify -- Started =====` in the log, then verify:
@@ -36,10 +40,10 @@ curl -s http://localhost:8090/v1/certify/.well-known/did.json
 curl -s http://localhost:8090/v1/certify/.well-known/openid-credential-issuer
 ```
 
-Both should return `200` with real JSON, and the second one should list two
-credential configurations: `FarmerCredential` (`ldp_vc`) and
-`FarmerCredentialSdJwt` (`vc+sd-jwt`) — both are seeded automatically from
-`docker-compose/certify_init.sql`, no manual setup needed.
+Both should return `200` with real JSON, and the second one should list three
+credential configurations: `FarmerCredential` (`ldp_vc`), `FarmerCredentialSdJwt`
+(`vc+sd-jwt`), and `MobileDrivingLicense` (`mso_mdoc`) — all three are seeded
+automatically from `docker-compose/certify_init.sql`, no manual setup needed.
 
 Stop with `docker-compose down` (keeps data) or `docker-compose down -v`
 (wipes and re-seeds clean next time).
@@ -61,24 +65,30 @@ run and are documented separately; see their own top-level folders.
 | Certify Nginx | 8091 |
 | Postgres | 5433 |
 
-## Credential formats (FR6)
+## Credential formats (FR6 mandatory + FR9 good-to-have)
 
-Both are the same underlying "Farmer Credential" mock identity data
+All three are the same underlying mock identity data
 (`docker-compose/config/farmer_identity_data.csv`, via Certify's built-in
-`MockCSVDataProviderPlugin`), issued in two different, clearly-labeled
+`MockCSVDataProviderPlugin`), issued in three different, clearly-labeled
 formats:
 
 | Config | Format | Scope | Notes |
 |---|---|---|---|
-| `FarmerCredential` | `ldp_vc` (W3C VC JSON-LD) | `mock_identity_vc_ldp` | Signed `Ed25519Signature2020` |
-| `FarmerCredentialSdJwt` | `vc+sd-jwt` (SD-JWT VC) | `mock_identity_vc_ldp` | `vct: FarmerCredentialSdJwt`, `farmerID` is selectively disclosable |
+| `FarmerCredential` | `ldp_vc` (W3C VC JSON-LD) | `mock_identity_vc_ldp` | Signed `Ed25519Signature2020`, RSA holder key |
+| `FarmerCredentialSdJwt` | `vc+sd-jwt` (SD-JWT VC) | `mock_identity_vc_ldp` | `vct: FarmerCredentialSdJwt`, `farmerID` selectively disclosable, RSA holder key |
+| `MobileDrivingLicense` | `mso_mdoc` (ISO 18013-5 mDL) | `mock_identity_vc_ldp` | CBOR + COSE_Sign1, **EC P-256 holder key** (COSE only supports EC device keys, not RSA — the one place this demo's holder key type actually varies by format) |
 
-Both configs share the same OAuth scope on purpose — see
+All three configs share the same OAuth scope on purpose — see
 [`API_DOCUMENTATION.md`](API_DOCUMENTATION.md) for why (short version: the
 scope is validated by the authorization server, not by Certify, and we don't
-control what scopes are registered there — the two formats are disambiguated
-by the `format`/`vct` field in the actual credential request instead, which
-is by design, not a workaround).
+control what scopes are registered there — formats are disambiguated by the
+`format`/`vct`/`doctype` field in the actual credential request instead,
+which is by design, not a workaround).
+
+`mso_mdoc` needed two real CSV columns (`givenName`, `familyName`) added
+alongside the existing `fullName`, since mDL claims are split first/last
+name, not one combined field — see `identity_store.py`'s `split_name` for how
+those get derived automatically from whatever `fullName` is set to.
 
 ## Testing the issuance flow (FR3)
 
@@ -90,9 +100,10 @@ pre-registered demo client for exactly this.
 
 ```bash
 cd scripts
-pip install -r requirements.txt
+source ../.venv/bin/activate   # see Prerequisites
 python3 test_issuance_flow.py ldp_vc        # JSON-LD Farmer Credential
 python3 test_issuance_flow.py "vc+sd-jwt"   # SD-JWT Farmer Credential
+python3 test_issuance_flow.py mso_mdoc      # mDoc/mDL Mobile Driving License
 ```
 
 Exit code 0 and a `"credential": ...` payload in the output means it worked.
@@ -105,12 +116,13 @@ For real assertions rather than eyeballing output, run:
 python3 -m unittest test_credential_shape.py -v
 ```
 
-11 checks: both formats issue successfully, every step returns 200, the
-JSON-LD proof type and issuer DID are correct, the SD-JWT header/vct/holder
-binding are correct, `farmerID` is actually selectively disclosable (absent
-from the plaintext payload, only reachable through its disclosure), and a
-bad format or an unreachable auth server both fail cleanly instead of
-throwing.
+14 checks across all three formats: each issues successfully, every step
+returns 200, the JSON-LD proof type and issuer DID are correct, the SD-JWT
+header/vct/holder binding are correct and `farmerID` is actually selectively
+disclosable (absent from the plaintext payload, only reachable through its
+disclosure), the mDoc doctype/signature/claims are correct and actually
+substituted (not left as literal `${...}` template text), and a bad format or
+an unreachable auth server both fail cleanly instead of throwing.
 
 All of this — `issuance_flow.py`, the module both scripts and the demo UI
 below share — treats network calls like they can fail, because they can:
@@ -120,13 +132,32 @@ uncaught exception.
 
 ## Demo UI
 
-`demo-ui/` is a small toy page for showing this working without reading
-terminal output — two buttons, one per format, shows the protocol steps and
-the resulting credential. Not the team's playground UI, just a quick way to
-demo the issuer piece. The page itself is intentionally simple; the backend
-behind it is the same tested `issuance_flow.py`, wrapped in a small Flask
-app with a `/healthz` endpoint, JSON error responses instead of stack traces,
-and debug mode off by default. See [`demo-ui/README.md`](demo-ui/README.md).
+`demo-ui/` is a page for showing this working without reading terminal
+output or touching a CSV file by hand — not the team's playground UI, just
+the way to demo the issuer piece to teammates. It has:
+
+- An identity editor — change the name/details credentials get issued for,
+  right from the page. Saving restarts Certify (see below for why) and the
+  UI shows that clearly rather than just hanging.
+- All three credential formats as selectable cards.
+- An expandable protocol timeline (click any step to see its raw response).
+- A result view that adapts per format — a claims table for JSON-LD, decoded
+  payload + disclosures for SD-JWT, decoded claims + signature status for
+  mDoc — plus the raw credential behind a toggle for anyone who wants it.
+
+The backend behind it is the same tested `issuance_flow.py`, wrapped in a
+small Flask app with a `/healthz` endpoint, JSON error responses instead of
+stack traces, and debug mode off by default. See
+[`demo-ui/README.md`](demo-ui/README.md).
+
+**Why saving identity data restarts Certify**: the bundled
+`MockCSVDataProviderPlugin` loads `farmer_identity_data.csv` once at
+container startup and doesn't re-read it per request — confirmed by testing
+directly, editing the file alone didn't change what got issued, a restart
+did. So `POST /api/identity` writes the file, then restarts the `certify`
+container and waits for it to report healthy before responding. That's a
+real ~1-2 minute wait, which is why the UI shows a "restarting" state instead
+of just looking frozen.
 
 ## DID hosting
 
