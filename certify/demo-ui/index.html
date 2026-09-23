@@ -39,6 +39,7 @@
     }
   }
   * { box-sizing: border-box; }
+  html, body { overflow-x: hidden; max-width: 100%; }
   body {
     margin: 0;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -243,10 +244,14 @@
     margin: 0;
   }
 
-  .kv { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
-  .kv td { padding: 5px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .kv { width: 100%; border-collapse: collapse; font-size: 0.84rem; table-layout: fixed; }
+  .kv td { padding: 5px 8px; border-bottom: 1px solid var(--border); vertical-align: top; word-break: break-all; overflow-wrap: break-word; }
   .kv td:first-child { color: var(--muted); width: 40%; font-family: ui-monospace, monospace; font-size: 0.78rem; }
   .kv tr:last-child td { border-bottom: none; }
+  .kv img.thumb { max-width: 100%; max-height: 120px; border-radius: 6px; display: block; }
+  .truncatable { font-family: ui-monospace, monospace; font-size: 0.78rem; }
+  .show-toggle { font-size: 0.76rem; color: var(--accent); text-decoration: none; white-space: nowrap; }
+  .show-toggle:hover { text-decoration: underline; }
 
   .empty { color: var(--muted); font-size: 0.86rem; padding: 8px 0; }
   .section-title { font-size: 0.78rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; margin: 14px 0 6px; }
@@ -361,6 +366,8 @@ const FIELD_GROUPS = [
 
 const $ = (sel) => document.querySelector(sel);
 
+const issuedResults = {}; // format id -> last result issued for it, this session
+
 function renderFormats() {
   $("#formats").innerHTML = FORMATS.map(f => `
     <div class="format-card ${f.id === selectedFormat ? 'selected' : ''}" data-fmt="${f.id}">
@@ -372,8 +379,28 @@ function renderFormats() {
     el.addEventListener("click", () => {
       selectedFormat = el.dataset.fmt;
       renderFormats();
+      showResultForSelectedFormat();
     });
   });
+}
+
+// Switching formats shows whatever was last issued for that format in this
+// session, not whatever happens to still be on screen from a different one.
+function showResultForSelectedFormat() {
+  const cached = issuedResults[selectedFormat];
+  const statusEl = $("#issue-status");
+  if (cached) {
+    renderSteps(cached.steps || []);
+    renderResult(cached);
+    statusEl.className = "badge " + (cached.ok ? "ok" : "fail");
+    statusEl.textContent = cached.ok ? "Issued" : "Failed";
+  } else {
+    const name = FORMATS.find(f => f.id === selectedFormat).name;
+    $("#steps").innerHTML = '<p class="empty">Nothing run yet for this format.</p>';
+    $("#result").innerHTML = `<p class="empty">Click "Issue credential" to generate a ${name} credential.</p>`;
+    statusEl.className = "";
+    statusEl.textContent = "";
+  }
 }
 
 const GENDER_OPTIONS = ["Male", "Female", "Other"];
@@ -569,10 +596,38 @@ function escapeHtml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+const TRUNCATE_AT = 60;
+
+function truncatable(value) {
+  const str = String(value);
+  if (str.length <= TRUNCATE_AT) return escapeHtml(str);
+  const uid = "t" + Math.random().toString(36).slice(2, 9);
+  return `<span class="truncatable" id="${uid}" data-full="${encodeURIComponent(str)}">${escapeHtml(str.slice(0, TRUNCATE_AT))}…</span> <a href="#" class="show-toggle" data-target="${uid}">Show more</a>`;
+}
+
+document.addEventListener("click", (e) => {
+  if (!e.target.classList.contains("show-toggle")) return;
+  e.preventDefault();
+  const span = document.getElementById(e.target.dataset.target);
+  const full = decodeURIComponent(span.dataset.full);
+  const expanded = span.dataset.expanded === "1";
+  span.textContent = expanded ? full.slice(0, TRUNCATE_AT) + "…" : full;
+  span.dataset.expanded = expanded ? "0" : "1";
+  e.target.textContent = expanded ? "Show more" : "Show less";
+});
+
 function kvTable(obj) {
-  return `<table class="kv">${Object.entries(obj).map(([k, v]) =>
-    `<tr><td>${k}</td><td>${typeof v === 'object' ? escapeHtml(JSON.stringify(v)) : v}</td></tr>`
-  ).join("")}</table>`;
+  return `<table class="kv">${Object.entries(obj).map(([k, v]) => {
+    let cell;
+    if (typeof v === "string" && v.startsWith("data:image")) {
+      cell = `<img class="thumb" src="${v}" alt="${k}">`;
+    } else if (typeof v === "object") {
+      cell = truncatable(JSON.stringify(v));
+    } else {
+      cell = truncatable(v);
+    }
+    return `<tr><td>${k}</td><td>${cell}</td></tr>`;
+  }).join("")}</table>`;
 }
 
 function renderResult(data) {
@@ -622,7 +677,9 @@ function renderResult(data) {
 }
 
 async function issue() {
+  const requestedFormat = selectedFormat; // guard against switching formats mid-request
   $("#btn-issue").disabled = true;
+  $("#issue-status").className = "badge neutral";
   $("#issue-status").textContent = "Running…";
   $("#steps").innerHTML = '<p class="empty">Running…</p>';
   $("#result").innerHTML = '<p class="empty">Running…</p>';
@@ -631,15 +688,22 @@ async function issue() {
     const res = await fetch("/api/issue", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ format: selectedFormat }),
+      body: JSON.stringify({ format: requestedFormat }),
     });
     const data = await res.json();
-    renderSteps(data.steps || []);
-    renderResult(data);
-    $("#issue-status").textContent = data.ok ? "Done" : "Failed";
+    issuedResults[requestedFormat] = data;
+    if (requestedFormat === selectedFormat) {
+      renderSteps(data.steps || []);
+      renderResult(data);
+      $("#issue-status").className = "badge " + (data.ok ? "ok" : "fail");
+      $("#issue-status").textContent = data.ok ? "Issued" : "Failed";
+    }
   } catch (err) {
-    $("#steps").innerHTML = `<p style="color:var(--fail)">Request failed: ${err}</p>`;
-    $("#issue-status").textContent = "Failed";
+    if (requestedFormat === selectedFormat) {
+      $("#steps").innerHTML = `<p style="color:var(--fail)">Request failed: ${err}</p>`;
+      $("#issue-status").className = "badge fail";
+      $("#issue-status").textContent = "Failed";
+    }
   } finally {
     $("#btn-issue").disabled = false;
   }
