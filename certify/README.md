@@ -93,14 +93,30 @@ Exit code 0 and a `"credential": ...` payload in the output means it worked.
 See [`API_DOCUMENTATION.md`](API_DOCUMENTATION.md) for example output and a
 breakdown of what each flow step does.
 
-## Known limitation
+## Demo UI
 
-`did-url` (in `docker-compose/config/certify-csvdp-farmer.properties` and
-`certify_init.sql`) currently points at a placeholder hostname from the
-upstream sample, not a host we control. The issuer works and signs correctly
-regardless — this only matters once a Verifier needs to actually resolve and
-check our DID, which requires hosting it somewhere public (GitHub Pages is
-the plan). Not blocking issuance testing.
+`demo-ui/` is a small toy page for showing this working without reading
+terminal output — two buttons, one per format, shows the protocol steps and
+the resulting credential. Not the team's playground UI, just a quick way to
+demo the issuer piece. See [`demo-ui/README.md`](demo-ui/README.md).
+
+## DID hosting
+
+Certify's `did-url` is set to `did:web:mushmat.github.io:inji_sandbox`, which
+resolves to `https://mushmat.github.io/inji_sandbox/did.json`. That file is
+sitting ready at `/docs/did.json` at the repo root — it just needs GitHub
+Pages turned on to actually go live:
+
+1. GitHub → repo → Settings → Pages
+2. Source: deploy from a branch
+3. Branch: `main` (or `feature/certify-issuer` if you want it live before the
+   merge), folder `/docs`
+4. Save — GitHub gives you the live URL, should match the one above
+
+The signing key behind this is stored in Postgres and stays stable across
+normal restarts — it only regenerates if the database volume gets wiped
+(`docker-compose down -v`). If that ever happens, re-fetch and replace
+`docs/did.json` with `curl http://localhost:8090/v1/certify/.well-known/did.json`.
 
 ## Architecture
 

@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Inji Certify — Issuer Demo</title>
+<style>
+  :root {
+    --bg: #f7f7f8;
+    --panel: #ffffff;
+    --border: #e0e0e5;
+    --text: #1a1a1f;
+    --muted: #6b6b75;
+    --accent: #12107c;
+    --ok: #1a7f37;
+    --fail: #b3261e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16161a;
+      --panel: #1e1e23;
+      --border: #333338;
+      --text: #eeeef0;
+      --muted: #9a9aa5;
+      --accent: #8b8fff;
+      --ok: #4caf6d;
+      --fail: #e5766b;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 24px 16px 64px;
+  }
+  .wrap { max-width: 780px; margin: 0 auto; }
+  h1 { font-size: 1.4rem; margin-bottom: 4px; }
+  .subtitle { color: var(--muted); font-size: 0.9rem; margin-bottom: 24px; }
+  .buttons { display: flex; gap: 12px; margin-bottom: 24px; flex-wrap: wrap; }
+  button {
+    background: var(--accent);
+    color: white;
+    border: none;
+    padding: 10px 18px;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+  button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  .panel h2 { font-size: 1rem; margin: 0 0 12px; }
+  .step {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.9rem;
+  }
+  .step:last-child { border-bottom: none; }
+  .step .badge {
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 999px;
+    color: white;
+    min-width: 30px;
+    text-align: center;
+  }
+  .step .badge.ok { background: var(--ok); }
+  .step .badge.fail { background: var(--fail); }
+  .step .name { flex: 1; }
+  .step .method { color: var(--muted); font-family: monospace; font-size: 0.8rem; }
+  pre {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+    overflow-x: auto;
+    font-size: 0.8rem;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .empty { color: var(--muted); font-size: 0.9rem; }
+  .tag {
+    display: inline-block;
+    font-size: 0.75rem;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: white;
+    margin-left: 8px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Inji Certify — Issuer Demo</h1>
+  <p class="subtitle">
+    Toy demo for the issuer piece only — triggers a real OpenID4VCI issuance
+    against a local Certify instance and MOSIP Collab's mock eSignet. Not the
+    team's playground UI.
+  </p>
+
+  <div class="buttons">
+    <button id="btn-ldp">Issue JSON-LD Credential</button>
+    <button id="btn-sdjwt" class="secondary">Issue SD-JWT Credential</button>
+  </div>
+
+  <div class="panel">
+    <h2>Protocol steps</h2>
+    <div id="steps"><p class="empty">Nothing run yet.</p></div>
+  </div>
+
+  <div class="panel">
+    <h2>Result</h2>
+    <div id="result"><p class="empty">Nothing to show yet.</p></div>
+  </div>
+</div>
+
+<script>
+const stepsEl = document.getElementById('steps');
+const resultEl = document.getElementById('result');
+const btnLdp = document.getElementById('btn-ldp');
+const btnSdjwt = document.getElementById('btn-sdjwt');
+
+function renderSteps(steps) {
+  stepsEl.innerHTML = steps.map(s => `
+    <div class="step">
+      <span class="badge ${s.ok ? 'ok' : 'fail'}">${s.status}</span>
+      <span class="method">${s.method}</span>
+      <span class="name">${s.name}</span>
+    </div>
+  `).join('');
+}
+
+function renderResult(data) {
+  if (!data.ok) {
+    resultEl.innerHTML = `<p style="color:var(--fail)">Failed: ${data.error}</p>
+      <pre>${JSON.stringify(data.steps[data.steps.length - 1].response, null, 2)}</pre>`;
+    return;
+  }
+
+  let html = `<span class="tag">${data.format}</span>`;
+  if (data.credential_decoded) {
+    html += `
+      <h3 style="font-size:0.9rem;margin-top:12px;">Decoded payload</h3>
+      <pre>${JSON.stringify(data.credential_decoded.payload, null, 2)}</pre>
+      <h3 style="font-size:0.9rem;">Disclosures</h3>
+      <pre>${JSON.stringify(data.credential_decoded.disclosures, null, 2)}</pre>
+      <h3 style="font-size:0.9rem;">Raw credential</h3>
+      <pre>${data.credential}</pre>
+    `;
+  } else {
+    html += `<pre>${JSON.stringify(data.credential, null, 2)}</pre>`;
+  }
+  resultEl.innerHTML = html;
+}
+
+async function issue(format) {
+  btnLdp.disabled = true;
+  btnSdjwt.disabled = true;
+  stepsEl.innerHTML = '<p class="empty">Running…</p>';
+  resultEl.innerHTML = '<p class="empty">Running…</p>';
+
+  try {
+    const res = await fetch('/api/issue', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ format })
+    });
+    const data = await res.json();
+    renderSteps(data.steps || []);
+    renderResult(data);
+  } catch (err) {
+    stepsEl.innerHTML = `<p style="color:var(--fail)">Request failed: ${err}</p>`;
+  } finally {
+    btnLdp.disabled = false;
+    btnSdjwt.disabled = false;
+  }
+}
+
+btnLdp.addEventListener('click', () => issue('ldp_vc'));
+btnSdjwt.addEventListener('click', () => issue('vc+sd-jwt'));
+</script>
+</body>
+</html>
