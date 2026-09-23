@@ -31,7 +31,11 @@ AUD_URL = "http://certify-nginx:80"   # has to match mosip_certify_domain_url in
 SCOPE = "mock_identity_vc_ldp"        # only scope wallet-demo has on Collab, all three formats share it
 MDOC_DOCTYPE = "org.iso.18013.5.1.mDL"
 VALID_FORMATS = ("ldp_vc", "vc+sd-jwt", "mso_mdoc")
-REQUEST_TIMEOUT = 15  # seconds, applied to every call out to eSignet or Certify
+REQUEST_TIMEOUT = 30  # seconds, applied to every call out to eSignet or Certify.
+# 15s used to be enough, but the very first credential request right after a
+# Certify restart does real key/cert work under Rosetta emulation and can
+# take longer than that even once the health check is already passing -
+# seen it happen more than once, not a one-off.
 
 # Demo client key MOSIP publishes in their own repo for testing against Collab.
 # Not a secret, it's meant to be used like this.

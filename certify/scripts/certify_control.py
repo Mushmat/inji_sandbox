@@ -19,11 +19,19 @@ CONTAINER_NAME = "docker-compose-certify-1"
 HEALTH_URL = "http://localhost:8090/v1/certify/.well-known/did.json"
 
 
-def restart_certify(timeout: int = 180, poll_interval: int = 5) -> bool:
+def restart_certify(timeout: int = 300, poll_interval: int = 5, warmup: int = 10) -> bool:
     """Returns True once Certify is healthy again, False if it didn't come
     back within `timeout` seconds. Raises only if the restart command itself
     fails to run (e.g. Docker isn't up) - a slow-to-heal container is
-    reported as a clean False, not an exception."""
+    reported as a clean False, not an exception.
+
+    Boot time under Rosetta emulation varies a lot (seen anywhere from ~2 to
+    ~5 minutes for the same image), hence the generous default timeout. The
+    `warmup` pause after the health check first passes exists because the
+    health endpoint itself is cheap, but the first real issuance request
+    right after a restart does actual key-loading work and can still time
+    out for a few seconds even once Certify reports healthy.
+    """
     subprocess.run(["docker", "restart", CONTAINER_NAME], check=True, capture_output=True, timeout=30)
 
     deadline = time.time() + timeout
@@ -31,6 +39,7 @@ def restart_certify(timeout: int = 180, poll_interval: int = 5) -> bool:
         try:
             r = requests.get(HEALTH_URL, timeout=5)
             if r.status_code == 200:
+                time.sleep(warmup)
                 return True
         except requests.exceptions.RequestException:
             pass
