@@ -161,21 +161,27 @@ of just looking frozen.
 
 ## DID hosting
 
-Certify's `did-url` is set to `did:web:mushmat.github.io:inji_sandbox`, which
-resolves to `https://mushmat.github.io/inji_sandbox/did.json`. That file is
-sitting ready at `/docs/did.json` at the repo root — it just needs GitHub
-Pages turned on to actually go live:
+Certify's `did-url` is `did:web:mushmat.github.io:inji-did`, which resolves
+to `https://mushmat.github.io/inji-did/did.json`.
 
-1. GitHub → repo → Settings → Pages
-2. Source: deploy from a branch
-3. Branch: `main` (or `feature/certify-issuer` if you want it live before the
-   merge), folder `/docs`
-4. Save — GitHub gives you the live URL, should match the one above
+This lives in its own small public repo (`inji-did`), separate from this one,
+so the DID document can be public without needing the whole team repo to be
+public yet. `docs/did.json` in *this* repo is kept as a reference copy of
+what's published there — it is not itself served anywhere.
 
-The signing key behind this is stored in Postgres and stays stable across
-normal restarts — it only regenerates if the database volume gets wiped
-(`docker-compose down -v`). If that ever happens, re-fetch and replace
-`docs/did.json` with `curl http://localhost:8090/v1/certify/.well-known/did.json`.
+**To (re-)publish it:**
+1. `curl http://localhost:8090/v1/certify/.well-known/did.json` — fetch the
+   current document from the running instance
+2. Put it at the root of the `inji-did` repo as `did.json`
+3. Commit and push to `inji-did`
+4. GitHub Pages on that repo (Settings → Pages → deploy from branch → `main`
+   → `/` root) serves it automatically once pushed
+
+The signing keys behind this are stored in Postgres and stay stable across
+normal restarts — they only regenerate if the database volume gets wiped
+(`docker-compose down -v`). If that happens, repeat the steps above to
+re-publish the new document, or verifiers will fail signature checks against
+a stale key.
 
 ## Architecture
 

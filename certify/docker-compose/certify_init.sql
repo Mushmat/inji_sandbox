@@ -185,7 +185,7 @@ VALUES (
     'https://www.w3.org/2018/credentials/v1',  -- context as comma-separated string
     'FarmerCredential,VerifiableCredential',  -- credential_type as comma-separated string
     'ldp_vc',  -- credential_format
-    'did:web:mushmat.github.io:inji_sandbox',  -- did_url
+    'did:web:mushmat.github.io:inji-did',  -- did_url
     'CERTIFY_VC_SIGN_ED25519',  -- key_manager_app_id
     'ED25519_SIGN',  -- key_manager_ref_id (optional)
     'EdDSA',  -- signature_algo (optional)
@@ -367,7 +367,7 @@ INSERT INTO certify.credential_config (
     NULL,
     NULL,
     'vc+sd-jwt',
-    'did:web:mushmat.github.io:inji_sandbox',  -- placeholder DID host, needs a real one before a real demo
+    'did:web:mushmat.github.io:inji-did',  -- hosted in its own repo, see certify/README.md DID hosting section
     'CERTIFY_VC_SIGN_ED25519',
     'ED25519_SIGN',
     'EdDSA',
@@ -411,7 +411,7 @@ INSERT INTO certify.credential_config (
     NULL,
     NULL,
     'mso_mdoc',
-    'did:web:mushmat.github.io:inji_sandbox',
+    'did:web:mushmat.github.io:inji-did',
     'CERTIFY_VC_SIGN_EC_R1',
     'EC_SECP256R1_SIGN',
     'ES256',
