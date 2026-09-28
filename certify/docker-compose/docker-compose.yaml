@@ -34,7 +34,7 @@ services:
     volumes:
       - ./config/certify-default.properties:/home/mosip/config/certify-default.properties
       - ./config/certify-csvdp-farmer.properties:/home/mosip/config/certify-csvdp-farmer.properties
-      - ./data/CERTIFY_PKCS12:/home/mosip/CERTIFY_PKCS12
+      - ./data/CERTIFY_PKCS12:/home/inji/CERTIFY_PKCS12
       - ./config/farmer_identity_data.csv:/home/mosip/config/farmer_identity_data.csv
       - ./config/vp_request_config.json:/home/mosip/config/vp_request_config.json
     networks:

@@ -6,14 +6,14 @@
     "id": "did:web:mushmat.github.io:inji-did",
     "verificationMethod": [
         {
-            "publicKeyMultibase": "zDnaen22rRZSiPiYAsQv59UjoFyW1Wuf7CioHtAHCVwLXVRUD",
+            "publicKeyMultibase": "zDnaebkvrQTTr8ZBpEa65FYiAWEVYeeZhbbCjZy1EmzmHFfGR",
             "controller": "did:web:mushmat.github.io:inji-did",
             "id": "did:web:mushmat.github.io:inji-did#9D8PhzBlEc3-5jQ5vlkWR_4Tk33ZdD4OU_uFb9NUoss",
             "type": "EcdsaSecp256r1VerificationKey2019",
             "@context": "https://w3id.org/security/suites/ecdsa-2019/v1"
         },
         {
-            "publicKeyMultibase": "z6MknS7pkCBNN9iFyQdbgP88xBUaQkcsxc5nP3uwUwFGtnR6",
+            "publicKeyMultibase": "z6Mkgin2LXTJJQ8d1U88vF9romtVzyyEtAH2UEwyzkb1fCui",
             "controller": "did:web:mushmat.github.io:inji-did",
             "id": "did:web:mushmat.github.io:inji-did#bQSVQEnCj599B4J5asw0bCxcBZR_d-Tx8u0S9wHJyUw",
             "type": "Ed25519VerificationKey2020",
