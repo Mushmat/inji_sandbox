@@ -32,3 +32,6 @@ venv/
 *.key
 *.jks
 secrets/
+*.local.sql
+docker-compose.override.yaml
+docker-compose.override.yml
