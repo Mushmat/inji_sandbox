@@ -1,0 +1,98 @@
+﻿services:
+
+  minio:
+    container_name: 'minio-service'
+    image: mosipint/minio:2022.2.7-debian-10-r0
+    ports:
+      - "9001:9001"
+      - "9000:9000"
+    environment:
+      MINIO_ROOT_USER: minioadmin      # Access Key
+      MINIO_ROOT_PASSWORD: minioadmin  # Secret Key
+
+  datashare:
+    container_name: 'datashare-service'
+    image: mosipid/data-share-service:1.3.0-beta.2
+    ports:
+      - "8097:8097"
+    environment:
+      - active_profile_env=inji-default,standalone
+      - SPRING_CONFIG_NAME=data-share
+      - SPRING_CONFIG_LOCATION=/home/mosip/
+      - DATASHARE_DOMAIN=datashare-service:8097
+    volumes:
+      - ./config/data-share-inji-default.properties:/home/mosip/data-share-inji-default.properties
+      - ./config/data-share-standalone.properties:/home/mosip/data-share-standalone.properties
+    depends_on:
+      - minio
+
+  postgres:
+    image: 'postgres:latest'
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      # 5432 is commonly taken by a local Postgres; 55432 avoids the clash.
+      # Containers still talk to it on 5432 over the compose network.
+      - "55432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - ./mimoto_init.sql:/docker-entrypoint-initdb.d/mimoto_init.sql
+
+  mimoto-service:
+    container_name: 'mimoto-service'
+    image: 'injistack/mimoto:0.22.0'
+    user: root
+    ports:
+      - "8099:8099"
+    environment:
+      - container_user=mosip
+      - active_profile_env=default
+      - SPRING_CONFIG_NAME=mimoto
+      - SPRING_CONFIG_LOCATION=/home/mosip/
+      - SPRING_CLOUD_BOOTSTRAP_LOCATION=/home/mosip/mimoto-bootstrap.properties
+      - oidc_p12_password=dummypassword
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/inji_mimoto
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - GOOGLE_OAUTH_CLIENT_ID=${GOOGLE_OAUTH_CLIENT_ID}
+      - GOOGLE_OAUTH_CLIENT_SECRET=${GOOGLE_OAUTH_CLIENT_SECRET}
+    volumes:
+      - ./config/mimoto-default.properties:/home/mosip/mimoto-default.properties
+      - ./config/mimoto-bootstrap.properties:/home/mosip/mimoto-bootstrap.properties
+      - ./certs/oidckeystore.p12:/home/mosip/certs/oidckeystore.p12
+    networks:
+      # 'default' keeps Mimoto talking to postgres/datashare in this project.
+      # 'mosip_network' is the shared network Certify runs on, so Mimoto can
+      # resolve certify-nginx. Declared here rather than attached by hand with
+      # `docker network connect`, which does not survive a container recreate.
+      - default
+      - mosip_network
+    depends_on:
+      - datashare
+      - postgres
+
+  inji-web:
+    container_name: 'inji-web'
+    image: 'injistack/inji-web:0.17.0'
+    ports:
+      - '3004:3004'
+    environment:
+      - DEFAULT_LANG=en
+      - MIMOTO_URL=http://localhost:3004/v1/mimoto
+      # Inji Web/Mimoto 0.22.0 cannot parse mso_mdoc credentials, so MOSIP's
+      # own mDL issuer is hidden here. See wallet/README.md, Known gaps.
+      - IGNORED_ISSUER_IDS=MockMdl
+    volumes:
+      - ./config/mimoto-issuers-config.json:/home/mosip/mimoto-issuers-config.json
+      - ./config/mimoto-trusted-verifiers.json:/home/mosip/mimoto-trusted-verifiers.json
+      - ./config/credential-template.html:/home/mosip/credential-template.html
+    depends_on:
+      - mimoto-service
+
+networks:
+  mosip_network:
+    external: true
+
+volumes:
+  postgres-data:

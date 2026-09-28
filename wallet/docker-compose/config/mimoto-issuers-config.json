@@ -1,0 +1,58 @@
+{
+  "issuers": [
+    {
+      "issuer_id": "Mock",
+      "protocol": "OpenId4VCI",
+      "display": [
+        {
+          "name": "Mock Identity",
+          "logo": {
+            "url": "https://inji.github.io/inji-config/logos/mosipid-logo.png",
+            "alt_text": "mosip-logo"
+          },
+          "title": "Mock Identity",
+          "description": "Download Mock Identity Credential",
+          "language": "en"
+        }
+      ],
+      "client_id": "wallet-demo",
+      "token_endpoint": "https://localhost:8099/v1/mimoto/get-token/Mock",
+      "client_alias": "wallet-demo-client",
+      "qr_code_type": "OnlineSharing",
+      "enabled": "true",
+      "credential_issuer_host": "https://injicertify-mock.collab.mosip.net",
+      "wellknown_endpoint": "https://injicertify-mock.collab.mosip.net/v1/certify/issuance/.well-known/openid-credential-issuer",
+      "redirect_uri": "io.mosip.residentapp.inji://oauthredirect",
+      "authorization_audience": "https://esignet-mock.collab.mosip.net/v1/esignet/oauth/v2/token",
+      "proxy_token_endpoint": "https://esignet-mock.collab.mosip.net/v1/esignet/oauth/v2/token",
+      "credential_issuer": "Mock"
+    },
+    {
+      "issuer_id": "FarmerIssuer",
+      "protocol": "OpenId4VCI",
+      "display": [
+        {
+          "name": "Farmer Issuer (Local Certify)",
+          "logo": {
+            "url": "https://mosip.github.io/inji-config/logos/agro-vertias-logo.png",
+            "alt_text": "farmer logo"
+          },
+          "title": "Farmer Issuer (Local Certify)",
+          "description": "Download Farmer Credential from our own Certify",
+          "language": "en"
+        }
+      ],
+      "client_id": "wallet-demo",
+      "token_endpoint": "https://localhost:8099/v1/mimoto/get-token/FarmerIssuer",
+      "client_alias": "wallet-demo-client",
+      "qr_code_type": "OnlineSharing",
+      "enabled": "true",
+      "credential_issuer_host": "http://certify-nginx:80",
+      "wellknown_endpoint": "http://certify-nginx:80/v1/certify/.well-known/openid-credential-issuer",
+      "redirect_uri": "io.mosip.residentapp.inji://oauthredirect",
+      "authorization_audience": "https://esignet-mock.collab.mosip.net/v1/esignet/oauth/v2/token",
+      "proxy_token_endpoint": "https://esignet-mock.collab.mosip.net/v1/esignet/oauth/v2/token",
+      "credential_issuer": "FarmerIssuer"
+    }
+  ]
+}
