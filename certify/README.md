@@ -161,27 +161,41 @@ of just looking frozen.
 
 ## DID hosting
 
-Certify's `did-url` is `did:web:mushmat.github.io:inji-did`, which resolves
-to `https://mushmat.github.io/inji-did/did.json`.
+Certify's `did-url` is `did:web:mushmat.github.io:inji_sandbox`, which
+resolves to `https://mushmat.github.io/inji_sandbox/did.json`. That's served
+by GitHub Pages from `docs/did.json` in this repo (Settings → Pages → deploy
+from branch → `feature/certify-issuer` → `/docs`).
 
-This lives in its own small public repo (`inji-did`), separate from this one,
-so the DID document can be public without needing the whole team repo to be
-public yet. `docs/did.json` in *this* repo is kept as a reference copy of
-what's published there — it is not itself served anywhere.
+**To re-publish it:**
+1. `curl -s http://localhost:8090/v1/certify/.well-known/did.json | python3 -m json.tool --indent 4 > ../docs/did.json`
+   (from `certify/`)
+2. Commit and push — Pages picks it up in a minute or two
 
-**To (re-)publish it:**
-1. `curl http://localhost:8090/v1/certify/.well-known/did.json` — fetch the
-   current document from the running instance
-2. Put it at the root of the `inji-did` repo as `did.json`
-3. Commit and push to `inji-did`
-4. GitHub Pages on that repo (Settings → Pages → deploy from branch → `main`
-   → `/` root) serves it automatically once pushed
+The signing keys live in two places: `data/CERTIFY_PKCS12/local.p12` (the
+actual keystore) and the `key_alias`/`key_store` tables in Postgres. Both
+survive restarts. `docker-compose down -v` wipes the Postgres half, which
+makes Certify generate new keys — if that happens, re-publish, or verifiers
+will fail signature checks against the old key.
 
-The signing keys behind this are stored in Postgres and stay stable across
-normal restarts — they only regenerate if the database volume gets wiped
-(`docker-compose down -v`). If that happens, repeat the steps above to
-re-publish the new document, or verifiers will fail signature checks against
-a stale key.
+### Running this issuer on another machine
+
+A second Certify instance generates its own keys, which won't match the
+published DID. To make it sign with the same keys, it needs a copy of
+`local.p12` and the matching `key_alias`/`key_store` rows. These are real
+private keys, so they're shared directly between teammates, never committed
+(`*.p12` and `*.local.sql` are gitignored).
+
+1. Put the keystore at `docker-compose/data/CERTIFY_PKCS12/local.p12`
+2. Put the SQL at `docker-compose/keys_seed.local.sql`
+3. Create `docker-compose/docker-compose.override.yaml`:
+   ```yaml
+   services:
+     database:
+       volumes:
+         - ./keys_seed.local.sql:/docker-entrypoint-initdb.d/zz_keys_seed.sql
+   ```
+4. `docker-compose down -v && docker-compose up -d`
+5. Check that `/.well-known/did.json` matches the published one
 
 ## Architecture
 

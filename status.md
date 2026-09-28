@@ -54,10 +54,11 @@ show it working without touching a terminal.
 ## Not done yet
 
 - **DID hosting** — `did-url` points at `did:web:mushmat.github.io:inji_sandbox`
-  and the DID document is ready at `/docs/did.json`, just needs GitHub Pages
-  turned on. Blocked on the repo going public, not on anything technical —
-  once that happens it's a 30-second Settings toggle (Settings → Pages →
-  deploy from branch → `main` → `/docs`).
+  and the DID document is at `/docs/did.json` on `feature/certify-issuer`.
+  Served by GitHub Pages from that branch's `/docs` folder once the repo is
+  public. Anyone running their own Certify needs the shared keystore to
+  match it — see "Running this issuer on another machine" in
+  `certify/README.md`.
 - **BFF / wallet / verifier integration** — deliberately not started.
   Connecting our issuer to Inji Wallet needs one config entry added
   (`mimoto-issuers-config.json`, already in our `docker-compose/config/`
