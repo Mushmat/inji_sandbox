@@ -1,0 +1,15 @@
+# Linux line endings everywhere, so config, SQL and scripts mounted into
+# containers behave the same when the repo is cloned on Windows.
+* text=auto eol=lf
+
+# PowerShell scripts are only ever run on Windows.
+*.ps1 text eol=crlf
+
+# Python's csv module writes \r\n on purpose; leave these as they are.
+*.csv -text
+
+*.p12 binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary

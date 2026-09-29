@@ -35,3 +35,6 @@ secrets/
 *.local.sql
 docker-compose.override.yaml
 docker-compose.override.yml
+
+# Written by integration/stack.py on every run (tunnel address changes)
+integration/.generated/

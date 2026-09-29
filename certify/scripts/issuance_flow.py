@@ -17,8 +17,8 @@ import hashlib
 import cbor2
 import requests
 import jwt as pyjwt
-from jwt.algorithms import RSAAlgorithm, ECAlgorithm
-from cryptography.hazmat.primitives.asymmetric import rsa, ec
+from jwt.algorithms import RSAAlgorithm, ECAlgorithm, OKPAlgorithm
+from cryptography.hazmat.primitives.asymmetric import rsa, ec, ed25519
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +62,17 @@ def pkce_pair():
     return verifier, challenge
 
 
+def _seconds_until_iat_passed(token: str, margin: float = 1.0, cap: float = 10.0) -> float:
+    """How long to wait before this JWT's iat is safely in the past here (0 if it already is)."""
+    try:
+        iat = decode_jwt_part(token.split(".")[1]).get("iat")
+    except (ValueError, IndexError, AttributeError):
+        return 0.0
+    if not isinstance(iat, (int, float)):
+        return 0.0
+    return max(0.0, min(cap, iat - time.time() + margin))
+
+
 def decode_jwt_part(part: str) -> dict:
     padded = part + "=" * (-len(part) % 4)
     return json.loads(base64.urlsafe_b64decode(padded))
@@ -91,12 +102,18 @@ def decode_mdoc(credential_b64url: str) -> dict:
     }
 
 
-def run_issuance(vc_format: str) -> dict:
+def run_issuance(vc_format: str, holder_key=None) -> dict:
     """Runs the full flow and returns a dict with every step taken, plus the
     result. Never raises - a bad format, a network drop, or Collab being down
     all come back as a normal {"ok": False, "error": ...} result instead of
     an exception, so callers (CLI or web) never have to guard this in a
-    try/except of their own."""
+    try/except of their own.
+
+    holder_key (optional): a private key object (EC P-256, RSA or Ed25519)
+    the credential should be bound to. A wallet that wants to present the
+    credential later needs this, because it has to sign the presentation
+    with the same key. Left out, a fresh throwaway key is generated per
+    request, exactly as before."""
     if vc_format not in VALID_FORMATS:
         return {
             "format": vc_format,
@@ -109,7 +126,7 @@ def run_issuance(vc_format: str) -> dict:
     steps = []
 
     try:
-        return _run_issuance(vc_format, steps)
+        return _run_issuance(vc_format, steps, holder_key)
     except requests.exceptions.RequestException as e:
         logger.exception("network error during issuance flow")
         return {"format": vc_format, "steps": steps, "ok": False, "error": f"network error: {e}", "credential": None}
@@ -118,7 +135,7 @@ def run_issuance(vc_format: str) -> dict:
         return {"format": vc_format, "steps": steps, "ok": False, "error": f"unexpected response: {e}", "credential": None}
 
 
-def _run_issuance(vc_format: str, steps: list) -> dict:
+def _run_issuance(vc_format: str, steps: list, holder_key=None) -> dict:
     session = requests.Session()
 
     def record(name, method, url, resp, extra=None):
@@ -261,7 +278,21 @@ def _run_issuance(vc_format: str, steps: list) -> dict:
     # mso_mdoc needs an EC P-256 device key (COSE_Key only supports EC2 for
     # this), everything else uses RSA.
     now = int(time.time())
-    if vc_format == "mso_mdoc":
+    if holder_key is not None:
+        holder_priv = holder_key
+        if isinstance(holder_key, ec.EllipticCurvePrivateKey):
+            holder_pub_jwk, proof_alg = json.loads(ECAlgorithm.to_jwk(holder_key.public_key())), "ES256"
+        elif isinstance(holder_key, ed25519.Ed25519PrivateKey):
+            holder_pub_jwk, proof_alg = json.loads(OKPAlgorithm.to_jwk(holder_key.public_key())), "EdDSA"
+        elif isinstance(holder_key, rsa.RSAPrivateKey):
+            holder_pub_jwk, proof_alg = json.loads(RSAAlgorithm.to_jwk(holder_key.public_key())), "RS256"
+        else:
+            return fail(f"unsupported holder key type {type(holder_key).__name__}")
+        if vc_format == "mso_mdoc" and proof_alg != "ES256":
+            return fail("mso_mdoc needs an EC P-256 holder key")
+        holder_pub_jwk["alg"] = proof_alg
+        holder_pub_jwk["use"] = "sig"
+    elif vc_format == "mso_mdoc":
         holder_priv = ec.generate_private_key(ec.SECP256R1())
         holder_pub_jwk = json.loads(ECAlgorithm.to_jwk(holder_priv.public_key()))
         holder_pub_jwk["alg"] = "ES256"
@@ -294,6 +325,15 @@ def _run_issuance(vc_format: str, steps: list) -> dict:
         cred_body["doctype"] = MDOC_DOCTYPE
     cred_body["proof"] = {"proof_type": "jwt", "jwt": proof_jwt}
 
+    # Certify 0.14.0 only accepts an access token whose iat is strictly before
+    # its own clock, with no leeway (AccessTokenValidationFilter). If this
+    # machine's clock is even slightly behind Collab's, a request sent right
+    # after the token exchange fails with 401 invalid_token. Wait until iat
+    # has passed on this clock (Certify runs on the same machine).
+    skew_wait = _seconds_until_iat_passed(access_token)
+    if skew_wait:
+        time.sleep(skew_wait)
+
     r = requests.post(
         f"{CERTIFY_URL}/issuance/credential",
         json=cred_body,
@@ -323,4 +363,5 @@ def _run_issuance(vc_format: str, steps: list) -> dict:
         "error": None,
         "credential": credential,
         "credential_decoded": decoded,
+        "holder_jwk": holder_pub_jwk,
     }

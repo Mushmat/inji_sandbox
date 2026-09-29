@@ -196,7 +196,7 @@ VALUES (
     'mock_identity_vc_ldp',  -- scope
     ARRAY['did:jwk'],  -- cryptographic_binding_methods_supported
     ARRAY['Ed25519Signature2020'],  -- credential_signing_alg_values_supported
-    '{"jwt": {"proof_signing_alg_values_supported": ["RS256", "ES256"]}}'::JSONB,  -- proof_types_supported
+    '{"jwt": {"proof_signing_alg_values_supported": ["RS256", "ES256", "EdDSA", "Ed25519"]}}'::JSONB,  -- proof_types_supported
     '{"fullName": {"display": [{"name": "Full Name", "locale": "en"}]}, "phone": {"display": [{"name": "Phone Number", "locale": "en"}]}, "dateOfBirth": {"display": [{"name": "Date of Birth", "locale": "en"}]}, "gender": {"display": [{"name": "Gender", "locale": "en"}]}}'::JSONB,  -- credential_subject
     NULL,  -- claims (optional)
     '[{"mosip.certify.mock.data-provider.csv.identifier-column": "id", "mosip.certify.mock.data-provider.csv.data-columns": "id,fullName,mobileNumber,dateOfBirth,gender,state,district,villageOrTown,postalCode,landArea,landOwnershipType,primaryCropType,secondaryCropType,face,farmerID", "mosip.certify.mock.data-provider.csv-registry-uri": "/home/mosip/config/farmer_identity_data.csv"}]'::JSONB,  -- plugin_configurations
@@ -378,7 +378,7 @@ INSERT INTO certify.credential_config (
     'mock_identity_vc_ldp',
     ARRAY['did:jwk','did:key'],
     ARRAY['EdDSA'],
-    '{"jwt": {"proof_signing_alg_values_supported": ["RS256", "PS256", "ES256", "EdDSA"]}}'::JSONB,
+    '{"jwt": {"proof_signing_alg_values_supported": ["RS256", "PS256", "ES256", "EdDSA", "Ed25519"]}}'::JSONB,
     NULL,
     '{"fullName": {"display": [{"name": "Full Name", "locale": "en"}]}, "mobileNumber": {"display": [{"name": "Mobile Number", "locale": "en"}]}, "dateOfBirth": {"display": [{"name": "Date of Birth", "locale": "en"}]}, "gender": {"display": [{"name": "Gender", "locale": "en"}]}, "state": {"display": [{"name": "State", "locale": "en"}]}, "district": {"display": [{"name": "District", "locale": "en"}]}, "villageOrTown": {"display": [{"name": "Village or Town", "locale": "en"}]}, "postalCode": {"display": [{"name": "Postal Code", "locale": "en"}]}, "landArea": {"display": [{"name": "Land Area", "locale": "en"}]}, "landOwnershipType": {"display": [{"name": "Land Ownership Type", "locale": "en"}]}, "primaryCropType": {"display": [{"name": "Primary Crop Type", "locale": "en"}]}, "secondaryCropType": {"display": [{"name": "Secondary Crop Type", "locale": "en"}]}, "farmerID": {"display": [{"name": "Farmer ID", "locale": "en"}]}}'::JSONB,
     NULL,

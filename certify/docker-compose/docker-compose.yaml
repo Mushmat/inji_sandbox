@@ -1,3 +1,7 @@
+# Own project name so this doesn't collide with wallet/ and verify/, which
+# also keep their compose files in folders called docker-compose.
+name: inji-certify
+
 services:
   database:
     image: 'postgres:15'
@@ -7,6 +11,9 @@ services:
       - POSTGRES_PASSWORD=postgres
     volumes:
       - ./certify_init.sql:/docker-entrypoint-initdb.d/certify_init.sql
+      # Named, so `down` + `up` keeps the database. Without it every fresh
+      # container got a new empty database and Certify made new signing keys.
+      - certify-db:/var/lib/postgresql/data
     networks:
       - network
     ports:
@@ -74,4 +81,4 @@ networks:
     external: true
 
 volumes:
-  postgres-data:
+  certify-db:

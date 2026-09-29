@@ -26,7 +26,7 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-CONTAINER_NAME = "docker-compose-certify-1"
+CONTAINER_NAME = "inji-certify-certify-1"
 HEALTH_URL = "http://localhost:8090/v1/certify/.well-known/did.json"
 STUCK_AFTER = 900  # seconds - past this, it's a real problem, not "just slow"
 

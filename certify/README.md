@@ -30,7 +30,7 @@ First boot takes 3-6 minutes (key generation, DB migrations, Rosetta
 emulation on Apple Silicon). Watch it with:
 
 ```bash
-docker logs docker-compose-certify-1 -f
+docker logs inji-certify-certify-1 -f
 ```
 
 Wait for `===== INJI Certify -- Started =====` in the log, then verify:
