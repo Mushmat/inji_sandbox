@@ -5,14 +5,15 @@ from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
-from config import CERTIFY_URL, INJI_VERIFY_URL, INJI_WEB_URL, MIMOTO_URL, PUBLISHED_DID_URL
+from config import CERTIFY_PREAUTH_URL, CERTIFY_URL, INJI_VERIFY_URL, INJI_WEB_PROBE_URL, MIMOTO_URL, PLAYGROUND_PUBLIC_URL, PUBLISHED_DID_URL
 
 SERVICES = [
     # (id, label, url, statuses that mean "up")
     ("certify", "Inji Certify", f"{CERTIFY_URL}/.well-known/openid-credential-issuer", {200}),
+    ("certify_preauth", "Certify pre-auth", f"{CERTIFY_PREAUTH_URL}/.well-known/openid-credential-issuer", {200}),
     ("inji_verify", "Inji Verify", f"{INJI_VERIFY_URL}/vp-request/x/status", {404}),
     ("mimoto", "Mimoto", f"{MIMOTO_URL}/issuers", {200}),
-    ("inji_web", "Inji Web", INJI_WEB_URL, {200}),
+    ("inji_web", "Inji Web", INJI_WEB_PROBE_URL, {200}),
 ]
 
 
@@ -40,9 +41,12 @@ def status() -> dict:
         published = pool.submit(_did_keys, PUBLISHED_DID_URL)
         live, published = live.result(), published.result()
 
-    tunnel = next((pair.split("=", 1)[0] for pair in os.environ.get("WALLET_URL_REWRITES", "").split(",") if "=" in pair), None)
-    if tunnel:
-        probes.append(_probe(("tunnel", "https tunnel", f"{tunnel}/v1/verify/vp-request/x/status", {404})))
+    # The https tunnels are the sources in WALLET_URL_REWRITES (see integration/stack.py).
+    for tunnel in [pair.split("=", 1)[0] for pair in os.environ.get("WALLET_URL_REWRITES", "").split(",") if "=" in pair]:
+        if tunnel.rstrip("/") == PLAYGROUND_PUBLIC_URL:
+            probes.append(_probe(("tunnel_playground", "Playground verifier tunnel", f"{tunnel}/api/catalog", {200})))
+        else:
+            probes.append(_probe(("tunnel_verify", "Inji Verify tunnel", f"{tunnel}/v1/verify/vp-request/x/status", {404})))
 
     if not live:
         did = {"ok": False, "detail": "Certify isn't answering, so its keys can't be compared."}

@@ -56,14 +56,32 @@ rather than returning immediately — that's expected, not a hang.
 
 ## What's running
 
-Certify + its Nginx + Postgres only — this repo's Wallet and Verify pieces
+Two Certify instances, their Nginx and one Postgres. The Wallet and Verify pieces
 run and are documented separately; see their own top-level folders.
 
-| Service | Port |
-|---|---|
-| Certify API | 8090 |
-| Certify Nginx | 8091 |
-| Postgres | 5433 |
+| Service | Port | What it is |
+|---|---|---|
+| `certify` | 8090 | Holders log in through MOSIP Collab's mock eSignet (authorization code). Reads the person from `farmer_identity_data.csv`. Inji Web uses this one |
+| `certify-preauth` | 8092 | Pre-authorized code: Certify writes the credential offer and is its own authorization server. The person's details come with each offer |
+| `certify-nginx` | 8091 | Serves `/.well-known` for `certify` |
+| `database` | 5433 | Shared by both, so they have the same signing keys and the same `did:web` |
+
+### Why two
+
+A Certify instance trusts exactly one token issuer (`mosip.certify.authn.issuer-uri`,
+see `AccessTokenValidationFilter`) and runs exactly one data provider plugin. The
+pre-authorized flow needs Certify's own tokens and `PreAuthDataProviderPlugin`; Inji
+Web needs eSignet's tokens and the CSV plugin. So the second instance runs the same
+image and database with `config/certify-preauth.properties` on top. Its offers look
+like this:
+
+```
+POST /v1/certify/pre-authorized-data  {"credential_configuration_id": "FarmerCredentialSdJwt", "claims": {...}}
+  -> {"credential_offer_uri": "openid-credential-offer://?credential_offer_uri=http://certify-preauth:8090/v1/certify/credential-offer-data/<id>"}
+```
+
+`scripts/issuance_flow.py` has both flows: `run_issuance()` (eSignet login) and
+`run_preauth_issuance()` (offer, pre-authorized code, token, credential).
 
 ## Credential formats (FR6 mandatory + FR9 good-to-have)
 
@@ -186,7 +204,10 @@ private keys, so they're shared directly between teammates, never committed
 (`*.p12` and `*.local.sql` are gitignored).
 
 1. Put the keystore at `docker-compose/data/CERTIFY_PKCS12/local.p12`
-2. Put the SQL at `docker-compose/keys_seed.local.sql`
+2. Put the SQL at `docker-compose/keys_seed.local.sql`. Its first line must be
+   `\c inji_certify postgres`: Postgres runs each init script on a fresh connection to
+   the default database, and without that line the seed fails quietly and Certify makes
+   its own keys (found by Navish)
 3. Create `docker-compose/docker-compose.override.yaml`:
    ```yaml
    services:
@@ -196,6 +217,31 @@ private keys, so they're shared directly between teammates, never committed
    ```
 4. `docker-compose down -v && docker-compose up -d`
 5. Check that `/.well-known/did.json` matches the published one
+
+## What we found
+
+Things about Certify 0.14 that cost us time, for anyone integrating against it:
+
+- **Pre-authorized claims go into the access token.** Certify copies every claim from
+  `/pre-authorized-data` into the token's `sub`. With a photo claim the token is about
+  20 KB, and Tomcat's default 8 KB header limit then rejects the credential request with
+  a bare HTML 400. `certify-preauth.properties` raises the limit to 64 KB.
+- **Offers are checked against the config's declared claims.** `/pre-authorized-data`
+  refuses any claim not declared for the credential config (`unknown_claims`). JSON-LD
+  and mDoc configs declare them in `credential_subject`, SD-JWT configs in
+  `sd_jwt_claims`. Our `FarmerCredential` used to declare only four fields (one of them a
+  stale `phone`); `certify_init.sql` now declares all of them.
+- **The offer cache isn't declared by default.** Without `credentialOfferCache` in
+  `mosip.certify.cache.names`, `/pre-authorized-data` fails with `credentialOfferCache not
+  available`.
+- **One trusted token issuer per instance**, see "Why two" above.
+- **No clock leeway on `iat`** (verify/docs/FINDINGS.md F12): `issuance_flow.py` waits
+  until the token's `iat` has passed before asking for the credential.
+- **The first credential after a restart is slow** under emulation on Apple Silicon (the
+  first signing does key work), so the credential request has a 90 second timeout.
+- **MOSIP Collab's Certify moved its metadata** to `/v1/certify/.well-known/openid-credential-issuer`;
+  the `/v1/certify/issuance/.well-known/...` address in the wallet's sample `Mock` issuer
+  entry now returns 404.
 
 ## Architecture
 

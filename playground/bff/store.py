@@ -3,6 +3,7 @@
 import json
 import sqlite3
 import threading
+from contextlib import contextmanager
 
 from config import DB_PATH
 
@@ -11,10 +12,16 @@ _COLUMNS = ("id", "created_at", "finished_at", "status", "issuer", "wallet", "ve
             "proof_type", "expected", "result", "verdict", "error")
 
 
+@contextmanager
 def _connect():
+    # sqlite3's own context manager only commits; this also closes the connection.
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
-    return conn
+    try:
+        with conn:
+            yield conn
+    finally:
+        conn.close()
 
 
 def init():
@@ -54,7 +61,7 @@ def history(limit: int = 500) -> list:
         run = json.loads(r["doc"])
         out.append({k: run.get(k) for k in (
             "id", "created_at", "finished_at", "duration_ms", "status", "issuer", "wallet", "verifier", "format",
-            "scenario", "proof_type", "outcome", "error", "versions", "suspected_gaps", "unsupported")})
+            "scenario", "proof_type", "outcome", "error", "versions", "suspected_gaps", "unsupported", "timings")})
     return out
 
 

@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { Catalog, FormatId, RunSummary } from '../types'
+import { FlowHealth } from './FlowHealth'
+import { MatrixCard } from './MatrixCard'
 
 const VERDICT_COLORS: Record<string, { fg: string; bg: string }> = {
   PASS: { fg: 'var(--ok)', bg: 'var(--ok-soft)' },
@@ -32,8 +34,8 @@ function Filter({ id, label, value, options, onChange }: {
   )
 }
 
-export function ReportView({ runs, catalog, onOpen, onClear }: {
-  runs: RunSummary[]; catalog: Catalog; onOpen: (id: string) => void; onClear: () => void
+export function ReportView({ runs, catalog, onOpen, onClear, onRefresh }: {
+  runs: RunSummary[]; catalog: Catalog; onOpen: (id: string) => void; onClear: () => void; onRefresh: () => void
 }) {
   const [f, setF] = useState({ format: '', verdict: '', wallet: '', verifier: '', version: '' })
   const [confirming, setConfirming] = useState(false)
@@ -87,6 +89,8 @@ export function ReportView({ runs, catalog, onOpen, onClear }: {
         </div>
       </div>
 
+      <MatrixCard catalog={catalog} onProgress={onRefresh} />
+
       <section className="rounded-2xl border border-line bg-surface p-4 shadow-panel">
         <h3 className="font-display text-base font-semibold">Compatibility matrix</h3>
         <p className="mt-0.5 mb-3 text-[0.8rem] text-muted">Latest honest run for each path and format. Tamper scenarios are in the history below.</p>
@@ -133,6 +137,8 @@ export function ReportView({ runs, catalog, onOpen, onClear }: {
           </div>
         )}
       </section>
+
+      <FlowHealth runs={runs} catalog={catalog} />
 
       <section className="rounded-2xl border border-line bg-surface p-4 shadow-panel">
         <h3 className="font-display text-base font-semibold">Run history</h3>

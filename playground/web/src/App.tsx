@@ -9,7 +9,7 @@ import { RunPanel } from './components/RunPanel'
 import { SubjectCard } from './components/SubjectCard'
 import type { Catalog, Compatibility, Health, IdentityDoc, Party, RestartStatus, Run, RunSummary, Selection } from './types'
 
-const DEFAULT: Selection = { issuer: 'certify', wallet: 'playground_wallet', verifier: 'inji_verify', format: 'ldp_vc', scenario: 'none' }
+const DEFAULT: Selection = { issuer: 'certify_preauth', wallet: 'playground_wallet', verifier: 'inji_verify', format: 'ldp_vc', scenario: 'none' }
 const LIVE = new Set(['running', 'waiting'])
 
 export default function App() {
@@ -136,7 +136,7 @@ export default function App() {
       wallet: catalog.wallets[run.wallet]?.name,
       relying_party: 'Relying party (Playground)',
       verifier: catalog.verifiers[run.verifier]?.name,
-      playground: 'Playground checks',
+      playground: 'Playground',
     }
   }, [catalog, run])
 
@@ -154,7 +154,7 @@ export default function App() {
         {!catalog ? (
           <p className="py-20 text-center text-muted">{error ? 'Start the BFF with python playground/bff/main.py, then reload.' : 'Loading…'}</p>
         ) : tab === 'report' ? (
-          <ReportView runs={history} catalog={catalog} onOpen={open} onClear={() => api.clearHistory().then(refreshHistory)} />
+          <ReportView runs={history} catalog={catalog} onOpen={open} onClear={() => api.clearHistory().then(refreshHistory)} onRefresh={refreshHistory} />
         ) : (
           <>
             <RoleSelector catalog={catalog} selection={selection} onChange={setSelection} locked={live} />

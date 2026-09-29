@@ -8,11 +8,13 @@ credential from a local Certify instance (see ../docker-compose/).
 """
 import json
 import logging
+import os
 import time
 import uuid
 import base64
 import secrets
 import hashlib
+from urllib.parse import parse_qs, urlparse
 
 import cbor2
 import requests
@@ -23,7 +25,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa, ec, ed25519
 logger = logging.getLogger(__name__)
 
 AUTH_SERVER = "https://esignet-mock.collab.mosip.net/v1/esignet"
-CERTIFY_URL = "http://localhost:8090/v1/certify"
+CERTIFY_URL = os.environ.get("CERTIFY_URL", "http://localhost:8090/v1/certify")
 CLIENT_ID = "wallet-demo"
 REDIRECT_URI = "http://localhost:3004/redirect"
 INDIVIDUAL_ID = "2154189532"
@@ -36,6 +38,8 @@ REQUEST_TIMEOUT = 30  # seconds, applied to every call out to eSignet or Certify
 # Certify restart does real key/cert work under Rosetta emulation and can
 # take longer than that even once the health check is already passing -
 # seen it happen more than once, not a one-off.
+# The credential request itself is where that first signing happens, so it gets longer again.
+CREDENTIAL_TIMEOUT = 90
 
 # Demo client key MOSIP publishes in their own repo for testing against Collab.
 # Not a secret, it's meant to be used like this.
@@ -100,6 +104,68 @@ def decode_mdoc(credential_b64url: str) -> dict:
         "claims": claims,
         "signed": issuer_signed.get("issuerAuth") is not None,
     }
+
+
+def decode_credential(vc_format: str, credential):
+    """Readable view of an SD-JWT or mDoc credential; None for JSON-LD, which is already readable."""
+    if vc_format == "vc+sd-jwt" and isinstance(credential, str):
+        jwt_part, *disclosure_parts = credential.split("~")
+        header_b64, payload_b64, _sig = jwt_part.split(".")
+        return {
+            "header": decode_jwt_part(header_b64),
+            "payload": decode_jwt_part(payload_b64),
+            "disclosures": [decode_jwt_part(d) for d in disclosure_parts if d],
+        }
+    if vc_format == "mso_mdoc" and isinstance(credential, str):
+        return decode_mdoc(credential)
+    return None
+
+
+def _decoded_jwt(token: str) -> dict:
+    header, payload = token.split(".")[:2]
+    return {"header": decode_jwt_part(header), "payload": decode_jwt_part(payload)}
+
+
+def _holder_key_material(vc_format: str, holder_key=None):
+    """(private key, public JWK, proof alg). Raises ValueError for a key the format can't use."""
+    if holder_key is None:
+        holder_key = ec.generate_private_key(ec.SECP256R1()) if vc_format == "mso_mdoc" \
+            else rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    if isinstance(holder_key, ec.EllipticCurvePrivateKey):
+        jwk, alg = json.loads(ECAlgorithm.to_jwk(holder_key.public_key())), "ES256"
+    elif isinstance(holder_key, ed25519.Ed25519PrivateKey):
+        jwk, alg = json.loads(OKPAlgorithm.to_jwk(holder_key.public_key())), "EdDSA"
+    elif isinstance(holder_key, rsa.RSAPrivateKey):
+        jwk, alg = json.loads(RSAAlgorithm.to_jwk(holder_key.public_key())), "RS256"
+    else:
+        raise ValueError(f"unsupported holder key type {type(holder_key).__name__}")
+    if vc_format == "mso_mdoc" and alg != "ES256":
+        raise ValueError("mso_mdoc needs an EC P-256 holder key")
+    jwk["alg"], jwk["use"] = alg, "sig"
+    return holder_key, jwk, alg
+
+
+def _proof_jwt(key, jwk: dict, alg: str, aud: str, nonce, iss: str = None) -> str:
+    now = int(time.time())
+    claims = {"aud": aud, "nonce": nonce, "iat": now, "exp": now + 600}
+    if iss:  # left out in the pre-authorized flow, where the wallet has no client_id
+        claims["iss"] = iss
+    return pyjwt.encode(claims, key, algorithm=alg, headers={"typ": "openid4vci-proof+jwt", "jwk": jwk})
+
+
+def _credential_request_body(vc_format: str, proof_jwt: str) -> dict:
+    body = {"format": vc_format}
+    if vc_format == "ldp_vc":
+        body["credential_definition"] = {
+            "type": ["VerifiableCredential", "FarmerCredential"],
+            "@context": ["https://www.w3.org/2018/credentials/v1"],
+        }
+    elif vc_format == "vc+sd-jwt":
+        body["vct"] = "FarmerCredentialSdJwt"
+    else:
+        body["doctype"] = MDOC_DOCTYPE
+    body["proof"] = {"proof_type": "jwt", "jwt": proof_jwt}
+    return body
 
 
 def run_issuance(vc_format: str, holder_key=None) -> dict:
@@ -187,7 +253,7 @@ def _run_issuance(vc_format: str, steps: list, holder_key=None) -> dict:
     r = session.post(f"{AUTH_SERVER}/authorization/v2/oauth-details",
                       json=body, headers={"X-XSRF-TOKEN": csrf}, timeout=REQUEST_TIMEOUT)
     if not record("Start authorization (oauth-details)", "POST",
-                   f"{AUTH_SERVER}/authorization/v2/oauth-details", r):
+                   f"{AUTH_SERVER}/authorization/v2/oauth-details", r, {"request": body}):
         return fail("oauth-details failed")
     resp_json = r.json()
     transaction_id = resp_json["response"]["transactionId"]
@@ -214,7 +280,7 @@ def _run_issuance(vc_format: str, steps: list, holder_key=None) -> dict:
         },
     }
     r = session.post(f"{AUTH_SERVER}/authorization/send-otp", json=body, headers=auth_headers, timeout=REQUEST_TIMEOUT)
-    if not record("Send OTP", "POST", f"{AUTH_SERVER}/authorization/send-otp", r):
+    if not record("Send OTP", "POST", f"{AUTH_SERVER}/authorization/send-otp", r, {"request": body}):
         return fail("send-otp failed")
 
     # 5. authenticate with the mock OTP
@@ -229,7 +295,7 @@ def _run_issuance(vc_format: str, steps: list, holder_key=None) -> dict:
         },
     }
     r = session.post(f"{AUTH_SERVER}/authorization/v3/authenticate", json=body, headers=auth_headers, timeout=REQUEST_TIMEOUT)
-    if not record("Authenticate (OTP)", "POST", f"{AUTH_SERVER}/authorization/v3/authenticate", r):
+    if not record("Authenticate (OTP)", "POST", f"{AUTH_SERVER}/authorization/v3/authenticate", r, {"request": body}):
         return fail("authenticate failed")
 
     # 6. auth-code
@@ -240,7 +306,7 @@ def _run_issuance(vc_format: str, steps: list, holder_key=None) -> dict:
         "request": {"transactionId": transaction_id, "acceptedClaims": [], "permittedAuthorizeScopes": [SCOPE]},
     }
     r = session.post(f"{AUTH_SERVER}/authorization/auth-code", json=body, headers=auth_headers, timeout=REQUEST_TIMEOUT)
-    if not record("Get authorization code", "POST", f"{AUTH_SERVER}/authorization/auth-code", r):
+    if not record("Get authorization code", "POST", f"{AUTH_SERVER}/authorization/auth-code", r, {"request": body}):
         return fail("auth-code failed")
     code = r.json()["response"]["code"]
 
@@ -268,62 +334,22 @@ def _run_issuance(vc_format: str, steps: list, holder_key=None) -> dict:
         "code_verifier": verifier,
     }
     r = session.post(token_endpoint, data=form, timeout=REQUEST_TIMEOUT)
-    if not record("Exchange code for access token", "POST", token_endpoint, r):
+    if not record("Exchange code for access token", "POST", token_endpoint, r, {"request": form}):
         return fail("token exchange failed")
     tok = r.json()
     access_token = tok["access_token"]
     c_nonce = tok.get("c_nonce")
 
-    # 8. build the holder proof JWT - a fresh keypair per request, per spec.
-    # mso_mdoc needs an EC P-256 device key (COSE_Key only supports EC2 for
-    # this), everything else uses RSA.
-    now = int(time.time())
-    if holder_key is not None:
-        holder_priv = holder_key
-        if isinstance(holder_key, ec.EllipticCurvePrivateKey):
-            holder_pub_jwk, proof_alg = json.loads(ECAlgorithm.to_jwk(holder_key.public_key())), "ES256"
-        elif isinstance(holder_key, ed25519.Ed25519PrivateKey):
-            holder_pub_jwk, proof_alg = json.loads(OKPAlgorithm.to_jwk(holder_key.public_key())), "EdDSA"
-        elif isinstance(holder_key, rsa.RSAPrivateKey):
-            holder_pub_jwk, proof_alg = json.loads(RSAAlgorithm.to_jwk(holder_key.public_key())), "RS256"
-        else:
-            return fail(f"unsupported holder key type {type(holder_key).__name__}")
-        if vc_format == "mso_mdoc" and proof_alg != "ES256":
-            return fail("mso_mdoc needs an EC P-256 holder key")
-        holder_pub_jwk["alg"] = proof_alg
-        holder_pub_jwk["use"] = "sig"
-    elif vc_format == "mso_mdoc":
-        holder_priv = ec.generate_private_key(ec.SECP256R1())
-        holder_pub_jwk = json.loads(ECAlgorithm.to_jwk(holder_priv.public_key()))
-        holder_pub_jwk["alg"] = "ES256"
-        holder_pub_jwk["use"] = "sig"
-        proof_alg = "ES256"
-    else:
-        holder_priv = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-        holder_pub_jwk = json.loads(RSAAlgorithm.to_jwk(holder_priv.public_key()))
-        holder_pub_jwk["alg"] = "RS256"
-        holder_pub_jwk["use"] = "sig"
-        proof_alg = "RS256"
-
-    proof_jwt = pyjwt.encode(
-        {"aud": AUD_URL, "nonce": c_nonce, "iss": CLIENT_ID, "iat": now, "exp": now + 600},
-        holder_priv,
-        algorithm=proof_alg,
-        headers={"typ": "openid4vci-proof+jwt", "jwk": holder_pub_jwk},
-    )
+    # 8. holder proof JWT. mso_mdoc needs an EC P-256 device key (COSE_Key only
+    # supports EC2 for this); without a holder_key the others get a fresh RSA key.
+    try:
+        holder_priv, holder_pub_jwk, proof_alg = _holder_key_material(vc_format, holder_key)
+    except ValueError as e:
+        return fail(str(e))
+    proof_jwt = _proof_jwt(holder_priv, holder_pub_jwk, proof_alg, AUD_URL, c_nonce, iss=CLIENT_ID)
 
     # 9. request the credential
-    cred_body = {"format": vc_format}
-    if vc_format == "ldp_vc":
-        cred_body["credential_definition"] = {
-            "type": ["VerifiableCredential", "FarmerCredential"],
-            "@context": ["https://www.w3.org/2018/credentials/v1"],
-        }
-    elif vc_format == "vc+sd-jwt":
-        cred_body["vct"] = "FarmerCredentialSdJwt"
-    else:
-        cred_body["doctype"] = MDOC_DOCTYPE
-    cred_body["proof"] = {"proof_type": "jwt", "jwt": proof_jwt}
+    cred_body = _credential_request_body(vc_format, proof_jwt)
 
     # Certify 0.14.0 only accepts an access token whose iat is strictly before
     # its own clock, with no leeway (AccessTokenValidationFilter). If this
@@ -338,23 +364,14 @@ def _run_issuance(vc_format: str, steps: list, holder_key=None) -> dict:
         f"{CERTIFY_URL}/issuance/credential",
         json=cred_body,
         headers={"Authorization": f"Bearer {access_token}"},
-        timeout=REQUEST_TIMEOUT,
+        timeout=CREDENTIAL_TIMEOUT,
     )
-    if not record("Request the credential", "POST", f"{CERTIFY_URL}/issuance/credential", r):
+    if not record("Request the credential", "POST", f"{CERTIFY_URL}/issuance/credential", r,
+                  {"request": cred_body, "proof_jwt_decoded": _decoded_jwt(proof_jwt)}):
         return fail("credential request failed")
 
     credential = r.json()["credential"]
-    decoded = None
-    if vc_format == "vc+sd-jwt" and isinstance(credential, str):
-        jwt_part, *disclosure_parts = credential.split("~")
-        header_b64, payload_b64, _sig = jwt_part.split(".")
-        decoded = {
-            "header": decode_jwt_part(header_b64),
-            "payload": decode_jwt_part(payload_b64),
-            "disclosures": [decode_jwt_part(d) for d in disclosure_parts if d],
-        }
-    elif vc_format == "mso_mdoc" and isinstance(credential, str):
-        decoded = decode_mdoc(credential)
+    decoded = decode_credential(vc_format, credential)
 
     return {
         "format": vc_format,
@@ -365,3 +382,114 @@ def _run_issuance(vc_format: str, steps: list, holder_key=None) -> dict:
         "credential_decoded": decoded,
         "holder_jwk": holder_pub_jwk,
     }
+
+
+# ------------------------------------------------------------------------------------------------
+# Pre-authorized code flow, against the certify-preauth instance (see
+# ../docker-compose/config/certify-preauth.properties). Certify writes the credential offer and is
+# its own authorization server, and the claims travel with the offer, so no eSignet login and no
+# CSV. Certify names itself by its in-network address (certify-preauth:8090); PREAUTH_REACH is how
+# this machine gets to that same address.
+
+PREAUTH_URL = os.environ.get("CERTIFY_PREAUTH_URL", "http://localhost:8092/v1/certify")
+PREAUTH_PUBLIC = "http://certify-preauth:8090"
+PREAUTH_REACH = PREAUTH_URL.split("/v1/")[0]
+PRE_AUTH_GRANT = "urn:ietf:params:oauth:grant-type:pre-authorized_code"
+CONFIG_IDS = {"ldp_vc": "FarmerCredential", "vc+sd-jwt": "FarmerCredentialSdJwt", "mso_mdoc": "MobileDrivingLicense"}
+PREAUTH_FORMATS = ("ldp_vc", "vc+sd-jwt")
+
+
+def _reach(url: str) -> str:
+    return url.replace(PREAUTH_PUBLIC, PREAUTH_REACH, 1)
+
+
+def run_preauth_issuance(vc_format: str, claims: dict, holder_key=None) -> dict:
+    """Issuer-initiated issuance with a pre-authorized code. Same result shape as run_issuance(),
+    and like it, never raises."""
+    steps = []
+    if vc_format not in PREAUTH_FORMATS:
+        return {"format": vc_format, "steps": steps, "ok": False, "credential": None,
+                "error": f"the pre-authorized flow here covers {PREAUTH_FORMATS}, not {vc_format!r}"}
+    try:
+        return _run_preauth(vc_format, claims, holder_key, steps)
+    except requests.exceptions.RequestException as e:
+        logger.exception("network error during pre-authorized issuance")
+        return {"format": vc_format, "steps": steps, "ok": False, "error": f"network error: {e}", "credential": None}
+    except (KeyError, ValueError, IndexError) as e:
+        logger.exception("unexpected response shape during pre-authorized issuance")
+        return {"format": vc_format, "steps": steps, "ok": False, "error": f"unexpected response: {e}", "credential": None}
+
+
+def _run_preauth(vc_format, claims, holder_key, steps):
+    def record(name, sender, method, url, resp, request=None, extra=None):
+        entry = {"name": name, "from": sender, "method": method, "url": url, "status": resp.status_code,
+                 "ok": resp.status_code == 200, "request": request}
+        try:
+            entry["response"] = resp.json()
+        except ValueError:
+            entry["response"] = resp.text[:500]
+        entry.update(extra or {})
+        steps.append(entry)
+        return entry["ok"]
+
+    def fail(msg):
+        return {"format": vc_format, "steps": steps, "ok": False, "error": msg, "credential": None}
+
+    # 1. the issuer's back office hands Certify the claims and gets an offer back
+    body = {"credential_configuration_id": CONFIG_IDS[vc_format], "claims": claims}
+    r = requests.post(f"{PREAUTH_URL}/pre-authorized-data", json=body, timeout=REQUEST_TIMEOUT)
+    if not record("Issuer asks Certify for a credential offer", "playground", "POST", f"{PREAUTH_URL}/pre-authorized-data",
+                  r, body, {"note": "The issuer's own system does this after checking who the person is. "
+                                    "Certify stores the claims and returns an offer with a pre-authorized code."}):
+        return fail("Certify didn't create a credential offer")
+    offer_uri = r.json()["credential_offer_uri"]
+
+    # 2. the wallet gets the offer (in real life, by scanning a QR of offer_uri)
+    by_ref = parse_qs(urlparse(offer_uri).query).get("credential_offer_uri", [None])[0]
+    r = requests.get(_reach(by_ref), timeout=REQUEST_TIMEOUT)
+    if not record("Wallet opens the credential offer", "wallet", "GET", by_ref, r, {"credential_offer_uri": offer_uri}):
+        return fail("couldn't fetch the credential offer")
+    offer = r.json()
+    code = offer["grants"][PRE_AUTH_GRANT]["pre-authorized_code"]
+    issuer = offer["credential_issuer"]
+
+    # 3. issuer and authorization server metadata
+    r = requests.get(_reach(f"{issuer}/v1/certify/.well-known/openid-credential-issuer"), timeout=REQUEST_TIMEOUT)
+    if not record("Wallet reads the issuer metadata", "wallet", "GET", f"{issuer}/v1/certify/.well-known/openid-credential-issuer", r):
+        return fail("couldn't read the issuer metadata")
+    meta = r.json()
+    as_url = (meta.get("authorization_servers") or [issuer])[0]
+    r = requests.get(_reach(f"{as_url}/v1/certify/.well-known/oauth-authorization-server"), timeout=REQUEST_TIMEOUT)
+    if not record("Wallet reads the authorization server metadata", "wallet", "GET",
+                  f"{as_url}/v1/certify/.well-known/oauth-authorization-server", r):
+        return fail("couldn't read the authorization server metadata")
+    token_endpoint = r.json()["token_endpoint"]
+
+    # 4. redeem the pre-authorized code
+    form = {"grant_type": PRE_AUTH_GRANT, "pre-authorized_code": code}
+    r = requests.post(_reach(token_endpoint), data=form, timeout=REQUEST_TIMEOUT)
+    if not record("Exchange the pre-authorized code for an access token", "wallet", "POST", token_endpoint, r, form):
+        return fail("token exchange failed")
+    tok = r.json()
+
+    # 5. prove possession of the holder key and ask for the credential
+    try:
+        key, jwk, alg = _holder_key_material(vc_format, holder_key)
+    except ValueError as e:
+        return fail(str(e))
+    proof = _proof_jwt(key, jwk, alg, issuer, tok.get("c_nonce"))
+    cred_body = _credential_request_body(vc_format, proof)
+    wait = _seconds_until_iat_passed(tok["access_token"])
+    if wait:
+        time.sleep(wait)
+    endpoint = meta.get("credential_endpoint") or f"{issuer}/v1/certify/issuance/credential"
+    r = requests.post(_reach(endpoint), json=cred_body, headers={"Authorization": f"Bearer {tok['access_token']}"},
+                      timeout=CREDENTIAL_TIMEOUT)
+    if not record("Request the credential", "wallet", "POST", endpoint, r, cred_body,
+                  {"proof_jwt_decoded": _decoded_jwt(proof)}):
+        return fail("credential request failed")
+
+    credential = r.json()["credential"]
+    return {"format": vc_format, "steps": steps, "ok": True, "error": None, "credential": credential,
+            "credential_decoded": decode_credential(vc_format, credential), "holder_jwk": jwk,
+            "credential_offer": offer}

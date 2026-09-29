@@ -7,6 +7,7 @@ sequences them, labels every step with its phase and its sender/receiver, and re
 
 import json
 import logging
+import re
 import threading
 import time
 import uuid
@@ -19,10 +20,14 @@ import requests
 import catalog
 import identity
 import store
-from config import CERTIFY_PUBLIC_ISSUER, CERTIFY_URL, INJI_WEB_URL, ROOT, VERSIONS
+from config import CERTIFY_PUBLIC_ISSUER, CERTIFY_URL, INJI_WEB_URL, PORT, ROOT, VERSIONS
 
+import issuance_flow  # certify/scripts
+import checks  # verify/scripts
 import presentation_flow  # verify/scripts
+import verifier_service
 from steps import StepLog
+from verifier_client import VerifierClient
 from wallet import PRESENTABLE, HolderWallet
 
 logger = logging.getLogger(__name__)
@@ -78,6 +83,8 @@ class Run:
             "format": fmt, "scenario": scenario, "versions": VERSIONS, "compat": compat,
             "credential": None, "proof_type": None, "outcome": None, "verifier_result": None,
             "playground_checks": [], "suspected_gaps": [], "unsupported": None, "awaiting": None, "error": None,
+            # FR16: how long each half took. Left empty for Inji Web runs, where a person sets the pace.
+            "timings": {},
         }
         self.segments = []
         self._t0 = time.monotonic()
@@ -96,12 +103,13 @@ class Run:
 
     def steps(self) -> list:
         out = []
+        verifier_name = catalog.VERIFIERS[self.doc["verifier"]]["name"]
         for kind, raw in self.segments:
             for s in list(raw):
                 step = dict(s)
                 if kind == "issuance":
                     step.setdefault("phase", "issue")
-                    step["from"], step["to"] = "wallet", _target(step.get("url"))
+                    step["from"], step["to"] = step.get("from") or "wallet", _target(step.get("url"))
                 elif kind == "presentation":
                     step["phase"] = _presentation_phase(step.get("name", ""))
                     actor = step.get("actor")
@@ -111,6 +119,12 @@ class Run:
                         step["from"], step["to"] = "relying_party", "verifier"
                     else:
                         step["from"], step["to"] = actor, _target(step.get("url"))
+                if verifier_name != "Inji Verify":
+                    # the presentation flow's labels were written with Inji Verify in mind
+                    for k in ("name", "note"):
+                        if isinstance(step.get(k), str):
+                            # but not where the text means Inji Verify's SDK itself
+                            step[k] = re.sub(r"Inji Verify(?! SDK)", verifier_name, step[k])
                 step["seq"] = len(out) + 1
                 out.append(step)
         return out
@@ -132,7 +146,7 @@ def start(issuer, wallet, verifier, fmt, scenario) -> dict:
     compat = catalog.check(issuer, wallet, verifier, fmt, scenario)
     if not compat["runnable"]:
         raise ValueError(" ".join(compat["blockers"]))
-    if (issuer == "certify" or wallet == "inji_web") and identity.certify_restarting():
+    if (issuer == "certify" or wallet == "inji_web") and identity.certify_restarting():  # the pre-auth instance doesn't restart
         raise RunBusy("Certify is restarting to load the new credential details. Try again when it's back.")
     with _registry_lock:
         busy = [r for r in _active.values() if r.doc["status"] in ("running", "waiting")]
@@ -141,7 +155,12 @@ def start(issuer, wallet, verifier, fmt, scenario) -> dict:
         run = Run(issuer, wallet, verifier, fmt, scenario, compat)
         _active[run.doc["id"]] = run
     store.save(run.view())
-    target = _interactive_issue if catalog.WALLETS[wallet]["interactive"] else _automatic
+    if catalog.WALLETS[wallet].get("brings_own_credential"):
+        target = _dc_api_prepare
+    elif catalog.WALLETS[wallet]["interactive"]:
+        target = _interactive_issue
+    else:
+        target = _automatic
     threading.Thread(target=_guard, args=(run, target), daemon=True).start()
     return run.view()
 
@@ -192,8 +211,10 @@ def _guard(run: Run, fn):
 def _automatic(run: Run):
     fmt = run.doc["format"]
     with _wallet_lock:
+        t0 = time.monotonic()
         if not _issue_to_playground_wallet(run):
             return
+        run.doc["timings"]["issue_ms"] = int((time.monotonic() - t0) * 1000)
         if _cancelled(run):
             return
         run.doc["phase"] = "present"
@@ -201,8 +222,11 @@ def _automatic(run: Run):
         if reason:
             _record_unsupported(run, reason)
             return
+        t1 = time.monotonic()
         with _live_steps(run):
-            result = presentation_flow.run_presentation(fmt, run.doc["scenario"], source="wallet", wallet=_wallet)
+            result = presentation_flow.run_presentation(fmt, run.doc["scenario"], source="wallet", wallet=_wallet,
+                                                        verifier=_verifier_client(run))
+        run.doc["timings"]["present_verify_ms"] = int((time.monotonic() - t1) * 1000)
     if _cancelled(run):
         return
     _apply_result(run, result)
@@ -216,6 +240,17 @@ def _issue_to_playground_wallet(run: Run) -> bool:
         run.local("issue", "issuer", "wallet", "Test issuer signs the credential and hands it to the wallet",
                   {"issuer": "did:key test issuer (not Inji)", "format": fmt, "credential": cred},
                   note="No OpenID4VCI here: the test issuer exists to show a verifier handling a stranger's credential.")
+    elif issuer == "certify_preauth":
+        claims = identity.read()["identity"]
+        result = issuance_flow.run_preauth_issuance(fmt, claims, holder_key=_wallet.key)
+        run.segment("issuance", result.get("steps", []))
+        if not result.get("ok"):
+            run.doc["error"] = f"Issuance failed: {result.get('error')}"
+            run.finish("error")
+            return False
+        cred = result["credential"]
+        if fmt in PRESENTABLE:
+            _wallet.store(fmt, cred, "Inji Certify (pre-authorized offer)")
     else:
         _offer_and_metadata(run, fmt)
         result = _wallet.receive_from_certify(fmt)
@@ -313,6 +348,12 @@ def _live_steps(run: Run):
         presentation_flow.StepLog = original
 
 
+def _verifier_client(run: Run) -> VerifierClient:
+    if run.doc["verifier"] == "playground_verifier":
+        return VerifierClient(base_url=f"http://127.0.0.1:{PORT}{verifier_service.PREFIX}", client_id=verifier_service.CLIENT_ID)
+    return VerifierClient()
+
+
 def _cancelled(run: Run) -> bool:
     return run.doc["status"] == "cancelled"
 
@@ -346,7 +387,7 @@ def _interactive_present(run: Run):
     run.doc["phase"] = "hold"
     run.local("hold", "wallet", "wallet", "Holder confirms the card is in Inji Web", {"format": fmt}, ok=True)
     run.doc["phase"] = "present"
-    started = presentation_flow.start_phone_session(fmt, scenario)
+    started = presentation_flow.start_phone_session(fmt, scenario, verifier=_verifier_client(run))
     seg = run.segment("presentation", list(started.get("steps", [])))
     if not started.get("ok"):
         run.doc["error"] = started.get("error")
@@ -375,6 +416,69 @@ def _interactive_present(run: Run):
     if not _cancelled(run):
         run.doc["error"] = "No answer from the wallet within six minutes."
         run.finish("error")
+
+
+# ------------------------------------------------------------------ Digital Credentials API (FR13)
+
+def _dc_api_prepare(run: Run):
+    run.local("issue", "wallet", "wallet", "No issuance: the wallet brings its own credential",
+              {"note": "The Playground can't put a credential into a wallet it doesn't control. The request asks for "
+                       "a Farmer credential the wallet already holds."}, ok=True)
+    run.doc["phase"] = "present"
+    run.doc["status"] = "waiting"
+    run.doc["awaiting"] = {
+        "kind": "dc_api",
+        "title": "Ask a wallet through the browser",
+        "link": "",
+        "instructions": [
+            "Use a browser with the Digital Credentials API (recent Chrome or Edge; on a desktop it offers to use a phone).",
+            "Press the button: the browser shows which wallets can answer.",
+            "Pick one and approve. The answer comes back to this page and on to the Playground verifier.",
+        ],
+    }
+
+
+def dc_api_request(run_id: str, origin: str) -> dict:
+    run = _active.get(run_id)
+    if not run or (run.doc["awaiting"] or {}).get("kind") != "dc_api" or run.doc["status"] != "waiting":
+        raise ValueError("This run isn't waiting for a Digital Credentials API answer.")
+    request = verifier_service.create_dc_request(run.doc["format"], origin.rstrip("/"))
+    run.local("present", "relying_party", "relying_party", "Verifier builds a Digital Credentials API request",
+              {"expected_origin": request["expected_origin"], "requests": request["requests"]},
+              note="Two variants: OpenID4VP 1.0 with a DCQL query, and the earlier draft with a presentation_definition. "
+                   "The browser passes them to the wallets; the answer is bound to this page's origin.")
+    run.doc["awaiting"] = {**run.doc["awaiting"], "request_id": request["requestId"],
+                           "response_url": f"{verifier_service.PREFIX}/dc-api/{request['requestId']}/response",
+                           "requests": request["requests"]}
+    threading.Thread(target=_guard, args=(run, lambda r: _dc_api_wait(r, request)), daemon=True).start()
+    return run.view()
+
+
+def _dc_api_wait(run: Run, request: dict):
+    deadline = time.monotonic() + PHONE_TIMEOUT_S
+    while time.monotonic() < deadline and not _cancelled(run):
+        s = verifier_service._find(request_id=request["requestId"])
+        if s and s["status"] == "VP_SUBMITTED":
+            break
+        time.sleep(1)
+    else:
+        if not _cancelled(run):
+            run.doc["error"] = "No wallet answered within six minutes."
+            run.finish("error")
+        return
+    run.doc["status"] = "running"
+    run.doc["awaiting"] = None
+    run.doc["phase"] = "verify"
+    sub = s["submission"]
+    run.local("present", "wallet", "relying_party", "Wallet answers through the browser",
+              {"vp_token": sub["vp_token"], "presentation_submission": sub["presentation_submission"]})
+    log = StepLog()
+    run.segment("presentation", log.steps)
+    verifier_result = _verifier_client(run).fetch_result(log, request["transactionId"], label="Verifier checks the answer")
+    playground_checks = checks.run_checks(sub["format"], s, sub)
+    outcome, gaps = presentation_flow.outcome_for("none", verifier_result, playground_checks)
+    _apply_result(run, {"ok": True, "verifier_result": {k: v for k, v in verifier_result.items() if k != "raw"},
+                        "playground_checks": playground_checks, "outcome": outcome, "suspected_gaps": gaps})
 
 
 def _mimoto_issuer_entry() -> dict:

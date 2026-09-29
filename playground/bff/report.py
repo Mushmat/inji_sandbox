@@ -38,6 +38,24 @@ def markdown(runs: list) -> str:
                      f"{_name(catalog.VERIFIERS, r['verifier'])} | {fmt.get(r['format'], {}).get('short', r['format'])} | "
                      f"{r.get('proof_type') or '-'} | {o.get('result', '-')} | {o.get('verdict', 'ERROR')} |")
 
+    lines += ["", "## Flow health", "",
+              "Automated runs only for the times; Inji Web runs wait on a person.", "",
+              "| Issuer | Wallet | Verifier | Format | Runs | Completed | Correct verdict | Median | p95 |",
+              "|---|---|---|---|---|---|---|---|---|"]
+    groups = {}
+    for r in finished:
+        groups.setdefault((r["issuer"], r["wallet"], r["verifier"], r["format"]), []).append(r)
+    for (i, w, v, f), runs in sorted(groups.items(), key=lambda kv: -len(kv[1])):
+        done = [r for r in runs if r.get("status") == "done" and (r.get("outcome") or {}).get("verdict") != "ERROR"]
+        correct = [r for r in runs if (r.get("outcome") or {}).get("verdict") == "PASS"]
+        times = sorted(r["duration_ms"] for r in runs if (r.get("timings") or {}).get("issue_ms") is not None
+                       and r.get("duration_ms"))
+        med = f"{times[len(times) // 2] / 1000:.1f} s" if times else "-"
+        p95 = f"{times[min(len(times) - 1, max(0, -(-95 * len(times) // 100) - 1))] / 1000:.1f} s" if times else "-"
+        lines.append(f"| {_name(catalog.ISSUERS, i)} | {_name(catalog.WALLETS, w)} | {_name(catalog.VERIFIERS, v)} | "
+                     f"{fmt.get(f, {}).get('short', f)} | {len(runs)} | {round(100 * len(done) / len(runs))}% | "
+                     f"{round(100 * len(correct) / len(runs))}% | {med} | {p95} |")
+
     lines += ["", "## Every run", "",
               "| When (UTC) | Issuer | Wallet | Verifier | Format | Scenario | Expected | Result | Verdict | Detail |",
               "|---|---|---|---|---|---|---|---|---|---|"]

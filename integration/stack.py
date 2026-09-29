@@ -1,7 +1,9 @@
-"""Starts, stops and checks the whole local stack: Certify, Inji Verify, the https tunnel and the wallet.
+"""Starts, stops and checks the whole playground: Certify (both instances), Inji Verify, the wallet,
+the two https tunnels and the Playground itself.
 
-Usage: python integration/stack.py up | down | status
+Usage: python integration/stack.py up [--no-playground] | down | status
 Works the same on macOS, Linux and Windows (PowerShell). Only needs Docker and Python.
+--no-playground leaves the Playground out, for running playground/bff/main.py on the host while developing.
 """
 
 import json
@@ -20,21 +22,35 @@ GENERATED = ROOT / "integration" / ".generated"
 
 CERTIFY_COMPOSE = ROOT / "certify" / "docker-compose" / "docker-compose.yaml"
 VERIFY_COMPOSE = ROOT / "verify" / "docker-compose" / "docker-compose.yaml"
+PLAYGROUND_COMPOSE = ROOT / "playground" / "docker-compose.yaml"
 WALLET_DIR = ROOT / "wallet" / "docker-compose"
 WALLET_COMPOSE = WALLET_DIR / "docker-compose.yml"
 WALLET_PROJECT = "inji-wallet"
 
 NETWORK = "mosip_network"
-TUNNEL = "inji-verify-tunnel"
 VERIFY_PORT = os.environ.get("VERIFY_PORT", "8080")
-VERIFY_CLIENT_ID = os.environ.get("VERIFY_CLIENT_ID", "inji-sandbox-playground")
 PUBLISHED_DID = "https://mushmat.github.io/inji_sandbox/did.json"
 
+# (container, what it exposes over https)
+TUNNELS = {
+    "verify": ("inji-verify-tunnel", "http://verify-service:8080"),
+    # host.docker.internal works whether the Playground runs in its container (port 5050 is published)
+    # or straight on the host.
+    "playground": ("inji-playground-tunnel", "http://host.docker.internal:5050"),
+}
+# Wallet-side client_id for each verifier (verify/scripts/verifier_client.py, playground/bff/verifier_service.py)
+VERIFIERS = {
+    "verify": ("inji-sandbox-playground", "/v1/verify/vp-submission/direct-post"),
+    "playground": ("playground-verifier", "/verifier/v1/verify/vp-submission/direct-post"),
+}
+
 CHECKS = [
-    ("Certify", "http://localhost:8090/v1/certify/.well-known/openid-credential-issuer", {200}),
+    ("Certify (eSignet login)", "http://localhost:8090/v1/certify/.well-known/openid-credential-issuer", {200}),
+    ("Certify (pre-authorized)", "http://localhost:8092/v1/certify/.well-known/openid-credential-issuer", {200}),
     ("Inji Verify", f"http://localhost:{VERIFY_PORT}/v1/verify/vp-request/x/status", {404}),
     ("Mimoto", "http://localhost:8099/v1/mimoto/issuers", {200}),
     ("Inji Web", "http://localhost:3004", {200}),
+    ("Playground", "http://localhost:5050/api/catalog", {200}),
 ]
 
 
@@ -47,8 +63,7 @@ def docker_env() -> dict:
 
 
 def run(args, env=None, check=True, capture=False):
-    return subprocess.run(args, env=env or docker_env(), check=check, text=True,
-                          capture_output=capture)
+    return subprocess.run(args, env=env or docker_env(), check=check, text=True, capture_output=capture)
 
 
 def compose(*args, env=None):
@@ -78,36 +93,39 @@ def check_local_files():
         run([sys.executable, str(ROOT / "integration" / "make_wallet_keystore.py")])
 
 
-def start_tunnel() -> str:
-    state = run(["docker", "inspect", "-f", "{{.State.Running}}", TUNNEL], check=False, capture=True)
+def start_tunnel(name: str, target: str) -> str:
+    state = run(["docker", "inspect", "-f", "{{.State.Running}}", name], check=False, capture=True)
     if state.stdout.strip() != "true":
-        run(["docker", "rm", "-f", TUNNEL], check=False, capture=True)
+        run(["docker", "rm", "-f", name], check=False, capture=True)
         # http2 instead of the default QUIC: many college and office networks drop
         # the UDP it needs, and the tunnel then silently answers 530.
-        run(["docker", "run", "-d", "--name", TUNNEL, "--network", NETWORK, "--restart", "unless-stopped",
+        run(["docker", "run", "-d", "--name", name, "--network", NETWORK, "--restart", "unless-stopped",
+             "--add-host", "host.docker.internal:host-gateway",
              "cloudflare/cloudflared:latest", "tunnel", "--no-autoupdate", "--protocol", "http2",
-             "--url", "http://verify-service:8080"], capture=True)
+             "--url", target], capture=True)
     for _ in range(60):
-        logs = run(["docker", "logs", TUNNEL], check=False, capture=True)
+        logs = run(["docker", "logs", name], check=False, capture=True)
         found = re.findall(r"https://[a-z0-9-]+\.trycloudflare\.com", logs.stdout + logs.stderr)
         if found:
             return found[-1]
         time.sleep(1)
-    sys.exit("The tunnel didn't report an address within a minute. Check `docker logs inji-verify-tunnel`.")
+    sys.exit(f"The tunnel {name} didn't report an address within a minute. Check `docker logs {name}`.")
 
 
-def write_wallet_override(tunnel_url: str) -> bool:
-    """Adds our verifier to the wallet's trusted list. Returns True if the list changed."""
+def write_wallet_override(tunnels: dict) -> bool:
+    """Adds both verifiers to the wallet's trusted list. Returns True if the list changed."""
     GENERATED.mkdir(parents=True, exist_ok=True)
     verifiers = json.loads((WALLET_DIR / "config" / "mimoto-trusted-verifiers.json").read_text(encoding="utf-8-sig"))
-    verifiers["verifiers"] = [v for v in verifiers["verifiers"] if v.get("client_id") != VERIFY_CLIENT_ID]
-    verifiers["verifiers"].append({
-        "client_id": VERIFY_CLIENT_ID,
-        "redirect_uris": [],
-        "response_uris": [f"{tunnel_url}/v1/verify/vp-submission/direct-post"],
-        # Inji Verify sends unsigned requests; Mimoto refuses those otherwise (FINDINGS W6).
-        "allow_unsigned_request": True,
-    })
+    ours = {client_id for client_id, _ in VERIFIERS.values()}
+    verifiers["verifiers"] = [v for v in verifiers["verifiers"] if v.get("client_id") not in ours]
+    for key, (client_id, path) in VERIFIERS.items():
+        verifiers["verifiers"].append({
+            "client_id": client_id,
+            "redirect_uris": [],
+            "response_uris": [tunnels[key] + path],
+            # Both verifiers send unsigned requests; Mimoto refuses those otherwise (FINDINGS W6).
+            "allow_unsigned_request": True,
+        })
     verifiers_file = GENERATED / "mimoto-trusted-verifiers.json"
     new = json.dumps(verifiers, indent=2)
     changed = not verifiers_file.exists() or verifiers_file.read_text(encoding="utf-8") != new
@@ -135,79 +153,91 @@ def did_keys(url: str) -> set:
         return set()
 
 
-def up():
+def up(with_playground=True):
     check_local_files()
     ensure_network()
 
-    print("\n== Certify ==")
+    print("\n== Certify (eSignet login + pre-authorized) ==")
     compose("-f", str(CERTIFY_COMPOSE), "up", "-d")
 
-    print("\n== https tunnel for Inji Verify ==")
-    tunnel_url = start_tunnel()
-    print(tunnel_url)
+    print("\n== https tunnels ==")
+    tunnels = {key: start_tunnel(name, target) for key, (name, target) in TUNNELS.items()}
+    for key, url in tunnels.items():
+        print(f"{key:<11} {url}")
 
     print("\n== Inji Verify ==")
     env = docker_env()
-    env.update(VERIFY_PORT=VERIFY_PORT, VERIFY_PUBLIC_URL=tunnel_url)
+    env.update(VERIFY_PORT=VERIFY_PORT, VERIFY_PUBLIC_URL=tunnels["verify"])
     compose("-f", str(VERIFY_COMPOSE), "up", "-d", env=env)
 
     print("\n== Wallet (Mimoto + Inji Web) ==")
-    changed = write_wallet_override(tunnel_url)
+    changed = write_wallet_override(tunnels)
     wallet_compose("up", "-d")
     if changed:
-        # Mimoto caches the trusted verifier list, so a new tunnel address needs a restart.
+        # Mimoto caches the trusted verifier list, so new tunnel addresses need a restart.
         run(["docker", "restart", "mimoto-service"], capture=True)
 
+    # For the Playground (or verify/demo-ui) running on the host rather than in its container.
     (GENERATED / "verify.env").write_text(
         f"INJI_VERIFY_URL=http://localhost:{VERIFY_PORT}/v1/verify\n"
-        f"WALLET_URL_REWRITES={tunnel_url}=http://localhost:{VERIFY_PORT}\n", encoding="utf-8")
+        f"PLAYGROUND_PUBLIC_URL={tunnels['playground']}\n"
+        f"WALLET_URL_REWRITES={tunnels['verify']}=http://localhost:{VERIFY_PORT},"
+        f"{tunnels['playground']}=http://localhost:5050\n", encoding="utf-8")
+
+    if with_playground:
+        print("\n== Playground ==")
+        env = dict(os.environ)  # the Playground image is multi-arch, no emulation needed
+        env.update(PLAYGROUND_PUBLIC_URL=tunnels["playground"],
+                   WALLET_URL_REWRITES=f"{tunnels['verify']}=http://verify-service:8080,"
+                                       f"{tunnels['playground']}=http://127.0.0.1:5050")
+        compose("-f", str(PLAYGROUND_COMPOSE), "up", "-d", "--build", env=env)
 
     print("\nStarted. The Java services take a few minutes to boot (longer on Apple Silicon).")
-    print("Run `python integration/stack.py status` until everything shows up.")
+    print("Run `python integration/stack.py status` until everything shows up, then open http://localhost:5050")
 
 
 def down():
+    compose("-f", str(PLAYGROUND_COMPOSE), "down")
     wallet_override = GENERATED / "wallet.override.yml"
     if wallet_override.exists():
         wallet_compose("down")
     else:
         compose("-p", WALLET_PROJECT, "-f", str(WALLET_COMPOSE), "down")
     compose("-f", str(VERIFY_COMPOSE), "down")
-    run(["docker", "rm", "-f", TUNNEL], check=False, capture=True)
+    for name, _ in TUNNELS.values():
+        run(["docker", "rm", "-f", name], check=False, capture=True)
     compose("-f", str(CERTIFY_COMPOSE), "down")
     print("Stopped. Databases and keys are kept; nothing was deleted.")
 
 
 def status():
     width = max(len(n) for n, _, _ in CHECKS)
-    all_up = True
     for name, url, ok in CHECKS:
-        code = http_status(url)
-        up_ = code in ok
-        all_up &= up_
+        up_ = http_status(url) in ok
         print(f"  {name:<{width}}  {'up' if up_ else 'not ready':<9}  {url}")
 
-    tunnel = GENERATED / "verify.env"
-    if tunnel.exists():
-        print("\n  " + tunnel.read_text(encoding="utf-8").strip().replace("\n", "\n  "))
+    generated = GENERATED / "verify.env"
+    if generated.exists():
+        print("\n  " + generated.read_text(encoding="utf-8").strip().replace("\n", "\n  "))
 
     live = did_keys("http://localhost:8090/v1/certify/.well-known/did.json")
     if live:
-        published = did_keys(PUBLISHED_DID)
-        if live == published:
+        if live == did_keys(PUBLISHED_DID):
             print("\n  Certify's keys match the published DID document.")
         else:
             print("\n  WARNING: Certify's keys don't match the published DID document, so wallets and verifiers")
             print("  will reject its credentials. See certify/README.md, 'Running this issuer on another machine'.")
-    if all_up:
-        print("\n  Inji Web: http://localhost:3004")
+    print("\n  Playground: http://localhost:5050   Inji Web: http://localhost:3004")
 
 
 def main():
-    commands = {"up": up, "down": down, "status": status}
-    if len(sys.argv) != 2 or sys.argv[1] not in commands:
+    args = sys.argv[1:]
+    if args[:1] == ["up"] and set(args[1:]) <= {"--no-playground"}:
+        up(with_playground="--no-playground" not in args)
+    elif args in (["down"], ["status"]):
+        {"down": down, "status": status}[args[0]]()
+    else:
         sys.exit(__doc__)
-    commands[sys.argv[1]]()
 
 
 if __name__ == "__main__":

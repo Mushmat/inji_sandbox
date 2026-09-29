@@ -1,0 +1,40 @@
+# The Playground container. Started by `python integration/stack.py up`, which fills in the tunnel
+# addresses below; running `docker compose up` here by hand works too, without the Inji Web paths.
+name: inji-playground
+
+services:
+  playground:
+    build:
+      context: ..
+      dockerfile: playground/Dockerfile
+    image: inji-playground:local
+    restart: unless-stopped
+    ports:
+      - "5050:5050"
+    environment:
+      # Everything is reached by container name on mosip_network.
+      CERTIFY_URL: http://certify:8090/v1/certify
+      CERTIFY_PREAUTH_URL: http://certify-preauth:8090/v1/certify
+      CERTIFY_DID_DOCUMENT_URL: http://certify:8090/v1/certify/.well-known/did.json
+      CERTIFY_HEALTH_URL: http://certify:8090/v1/certify/.well-known/did.json
+      CERTIFY_CONTAINER: inji-certify-certify-1
+      INJI_VERIFY_URL: http://verify-service:8080/v1/verify
+      MIMOTO_URL: http://mimoto-service:8099/v1/mimoto
+      # Inji Web isn't on mosip_network, so its status check goes through the host.
+      INJI_WEB_PROBE_URL: http://host.docker.internal:3004
+      # What the browser opens, so it stays on localhost.
+      INJI_WEB_URL: http://localhost:3004
+      PLAYGROUND_PUBLIC_URL: ${PLAYGROUND_PUBLIC_URL:-http://localhost:5050}
+      WALLET_URL_REWRITES: ${WALLET_URL_REWRITES:-}
+    volumes:
+      - ..:/app
+      # Saving new credential details restarts the eSignet Certify container.
+      - /var/run/docker.sock:/var/run/docker.sock
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - mosip_network
+
+networks:
+  mosip_network:
+    external: true

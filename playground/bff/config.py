@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 CERTIFY_SCRIPTS = ROOT / "certify" / "scripts"
 VERIFY_SCRIPTS = ROOT / "verify" / "scripts"
 DATA_DIR = Path(os.environ.get("PLAYGROUND_DATA_DIR", ROOT / "playground" / ".data"))
-WEB_DIST = ROOT / "playground" / "web" / "dist"
+WEB_DIST = Path(os.environ.get("PLAYGROUND_WEB_DIST", ROOT / "playground" / "web" / "dist"))
 
 
 def _load_env_file(path: Path) -> None:
@@ -37,11 +37,16 @@ for p in (CERTIFY_SCRIPTS, VERIFY_SCRIPTS):
         sys.path.insert(0, str(p))
 
 PORT = int(os.environ.get("PLAYGROUND_PORT", "5050"))
+HOST = os.environ.get("PLAYGROUND_HOST", "127.0.0.1")
+# Where wallets reach the Playground verifier. stack.py sets an https tunnel address here so Inji Web can use it.
+PLAYGROUND_PUBLIC_URL = os.environ.get("PLAYGROUND_PUBLIC_URL", f"http://localhost:{PORT}").rstrip("/")
 CERTIFY_URL = os.environ.get("CERTIFY_URL", "http://localhost:8090/v1/certify")
+CERTIFY_PREAUTH_URL = os.environ.get("CERTIFY_PREAUTH_URL", "http://localhost:8092/v1/certify")
 CERTIFY_PUBLIC_ISSUER = "http://certify-nginx:80"
 INJI_VERIFY_URL = os.environ.get("INJI_VERIFY_URL", "http://localhost:8080/v1/verify")
 MIMOTO_URL = os.environ.get("MIMOTO_URL", "http://localhost:8099/v1/mimoto")
 INJI_WEB_URL = os.environ.get("INJI_WEB_URL", "http://localhost:3004")
+INJI_WEB_PROBE_URL = os.environ.get("INJI_WEB_PROBE_URL", INJI_WEB_URL)
 PUBLISHED_DID_URL = os.environ.get("PUBLISHED_DID_URL", "https://mushmat.github.io/inji_sandbox/did.json")
 DB_PATH = DATA_DIR / "runs.sqlite3"
 

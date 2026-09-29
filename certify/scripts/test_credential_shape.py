@@ -10,6 +10,7 @@ Usage:
 import unittest
 
 import issuance_flow
+from identity_store import read_identity
 from issuance_flow import run_issuance
 
 
@@ -70,7 +71,8 @@ class SdJwtCredentialTest(unittest.TestCase):
         names = [d[1] for d in disclosures]
         self.assertIn("farmerID", names)
         farmer_id_disclosure = next(d for d in disclosures if d[1] == "farmerID")
-        self.assertEqual(farmer_id_disclosure[2], "987654321")
+        # whatever the identity editor last saved, not a fixed value
+        self.assertEqual(farmer_id_disclosure[2], read_identity()["farmerID"])
 
 
 class MDocCredentialTest(unittest.TestCase):

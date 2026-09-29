@@ -56,6 +56,41 @@ services:
       retries: 30
       start_period: 60s
 
+  # Second Certify in pre-authorized code mode, see config/certify-preauth.properties.
+  # Same database and keystore as `certify`, so it signs as the same did:web.
+  certify-preauth:
+    image: injistack/inji-certify-with-plugins:0.14.0
+    user: root
+    restart: unless-stopped
+    ports:
+      - 8092:8090
+    environment:
+      - container_user=mosip
+      - active_profile_env=default, csvdp-farmer, preauth
+      - SPRING_CONFIG_NAME=certify
+      - SPRING_CONFIG_LOCATION=/home/mosip/config/
+      - enable_certify_artifactory=false
+      - download_hsm_client=false
+      - mosip_certify_domain_url=http://certify-preauth:8090
+    volumes:
+      - ./config/certify-default.properties:/home/mosip/config/certify-default.properties
+      - ./config/certify-csvdp-farmer.properties:/home/mosip/config/certify-csvdp-farmer.properties
+      - ./config/certify-preauth.properties:/home/mosip/config/certify-preauth.properties
+      - ./data/CERTIFY_PKCS12:/home/inji/CERTIFY_PKCS12
+      - ./config/farmer_identity_data.csv:/home/mosip/config/farmer_identity_data.csv
+      - ./config/vp_request_config.json:/home/mosip/config/vp_request_config.json
+    networks:
+      - network
+    depends_on:
+      certify:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8090/v1/certify/.well-known/did.json"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
   certify-nginx:
     image: nginx:stable
     restart: unless-stopped

@@ -17,6 +17,30 @@ const GROUPS = [
 // The mDL only carries name, birth date and document number (farmerID), and no photo.
 const USED_BY: Record<FormatId, string[] | 'all'> = { ldp_vc: 'all', 'vc+sd-jwt': 'all', mso_mdoc: ['fullName', 'dateOfBirth', 'farmerID'] }
 
+// Same rules the BFF enforces (playground/bff/identity.py). MOSIP doesn't define a Farmer ID;
+// 9 digits matches the ID this mock data has always used.
+const RULES: Record<string, [RegExp, string]> = {
+  farmerID: [/^\d{9}$/, 'Exactly 9 digits.'],
+  mobileNumber: [/^[6-9]\d{9}$/, '10 digits, starting with 6, 7, 8 or 9.'],
+  postalCode: [/^[1-9]\d{5}$/, "6 digits, can't start with 0."],
+  fullName: [/^[A-Za-z][A-Za-z .'-]{0,79}$/, 'Letters, spaces, dots, apostrophes and hyphens.'],
+}
+const NUMERIC: Record<string, number> = { farmerID: 9, mobileNumber: 10, postalCode: 6 }
+
+export function problemWith(name: string, value: string): string | null {
+  const v = (value ?? '').trim()
+  if (name === 'face') return null
+  if (!v) return "Can't be empty."
+  if (name === 'dateOfBirth') {
+    const m = /^(\d{2})-(\d{2})-(\d{4})$/.exec(v)
+    const d = m ? new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1])) : null
+    if (!d || d.getDate() !== Number(m![1]) || d >= new Date() || d.getFullYear() < 1900) return 'A real date between 1900 and today.'
+    return null
+  }
+  const rule = RULES[name]
+  return rule && !rule[0].test(v) ? rule[1] : null
+}
+
 // The CSV keeps dates as DD-MM-YYYY; a date input wants YYYY-MM-DD.
 const toInputDate = (s: string) => { const m = /^(\d{2})-(\d{2})-(\d{4})$/.exec(s ?? ''); return m ? `${m[3]}-${m[2]}-${m[1]}` : '' }
 const fromInputDate = (s: string) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s ?? ''); return m ? `${m[3]}-${m[2]}-${m[1]}` : s }
@@ -94,21 +118,30 @@ function Photo({ value, onChange }: { value: string; onChange: (v: string) => vo
 
 function Field({ name, value, used, onChange }: { name: string; value: string; used: boolean; onChange: (v: string) => void }) {
   const id = `subject-${name}`
-  const input = 'w-full rounded-lg border border-line bg-surface-2 px-2.5 py-1.5 text-[0.84rem] text-ink'
+  const problem = problemWith(name, value)
+  const input = 'w-full rounded-lg border bg-surface-2 px-2.5 py-1.5 text-[0.84rem] text-ink'
+  const border = { borderColor: problem ? 'var(--fail)' : 'var(--line)' }
   return (
     <label htmlFor={id} className="flex min-w-0 flex-col gap-1" style={used ? undefined : { opacity: 0.55 }}>
       <span className="text-[0.74rem] font-medium text-muted">
         {LABELS[name] ?? name}{!used && <span className="text-faint"> (not in this format)</span>}
       </span>
       {name === 'gender' ? (
-        <select id={id} value={value} onChange={(e) => onChange(e.target.value)} className={input}>
+        <select id={id} value={value} onChange={(e) => onChange(e.target.value)} className={input} style={border}>
           {['Female', 'Male', 'Other'].map((g) => <option key={g}>{g}</option>)}
         </select>
       ) : name === 'dateOfBirth' ? (
-        <input id={id} type="date" value={toInputDate(value)} onChange={(e) => onChange(fromInputDate(e.target.value))} className={input} />
+        <input id={id} type="date" value={toInputDate(value)} onChange={(e) => onChange(fromInputDate(e.target.value))}
+          className={input} style={border} max={new Date().toISOString().slice(0, 10)} min="1900-01-01" />
+      ) : NUMERIC[name] ? (
+        <input id={id} type="text" inputMode="numeric" maxLength={NUMERIC[name]} value={value}
+          onChange={(e) => onChange(e.target.value.replace(/\D/g, ''))} className={`${input} font-mono tabular`} style={border}
+          aria-invalid={!!problem} aria-describedby={problem ? `${id}-error` : undefined} />
       ) : (
-        <input id={id} type={name === 'mobileNumber' ? 'tel' : 'text'} value={value} onChange={(e) => onChange(e.target.value)} className={input} />
+        <input id={id} type="text" value={value} onChange={(e) => onChange(e.target.value)} className={input} style={border}
+          aria-invalid={!!problem} aria-describedby={problem ? `${id}-error` : undefined} />
       )}
+      {problem && <span id={`${id}-error`} className="text-[0.72rem]" style={{ color: 'var(--fail)' }}>{problem}</span>}
     </label>
   )
 }
@@ -131,6 +164,7 @@ export function SubjectCard({ doc, format, onSave, restarting, elapsed }: {
   const isUsed = (f: string) => used === 'all' || used.includes(f)
   const person = doc.identity
   const changed = Object.keys(draft).filter((k) => draft[k] !== person[k])
+  const invalid = Object.keys(draft).some((k) => problemWith(k, draft[k]))
 
   async function save() {
     setSaving(true)
@@ -163,7 +197,7 @@ export function SubjectCard({ doc, format, onSave, restarting, elapsed }: {
           {restarting && (
             <span className="flex items-center gap-2 text-[0.78rem]" style={{ color: 'var(--accent)' }}>
               <span className="pulse size-2 rounded-full" style={{ background: 'var(--accent)' }} />
-              Certify is loading the new details <span className="tabular">({elapsed}s)</span>
+              eSignet Certify is loading the new details <span className="tabular">({elapsed}s, usually about 2 min)</span>
             </span>
           )}
           <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open}
@@ -176,9 +210,9 @@ export function SubjectCard({ doc, format, onSave, restarting, elapsed }: {
       {open && (
         <div className="border-t border-line px-4 py-4">
           <p className="mb-4 max-w-[70ch] text-[0.8rem] text-muted">
-            Every credential in this playground is issued for this one mock person, whichever wallet receives it,
-            Inji Web included. Saving restarts Certify so it reads the new details, which takes a couple of minutes on
-            a Mac. The test issuer uses them straight away.
+            Every credential in this playground is issued for this one mock person. The pre-authorized Certify and the
+            test issuer use new details straight away. The eSignet-login Certify, the one Inji Web downloads from, reads
+            them from a file at startup, so saving restarts it in the background (about 2 minutes on a Mac).
           </p>
           <div className="grid gap-5 lg:grid-cols-[auto_1fr]">
             <div>
@@ -197,16 +231,16 @@ export function SubjectCard({ doc, format, onSave, restarting, elapsed }: {
             </div>
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-3">
-            <button type="button" onClick={save} disabled={saving || changed.length === 0 || restarting}
+            <button type="button" onClick={save} disabled={saving || changed.length === 0 || restarting || invalid}
               className="rounded-lg px-4 py-2 text-[0.85rem] font-semibold disabled:opacity-45"
               style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>
-              {saving ? 'Saving…' : 'Save and reload Certify'}
+              {saving ? 'Saving…' : 'Save'}
             </button>
             <button type="button" onClick={() => { setDraft(person); setOpen(false) }} className="text-[0.82rem] text-muted hover:text-ink">
               Discard changes
             </button>
-            <span className="text-[0.76rem] text-faint">
-              {changed.length ? `${changed.length} field${changed.length > 1 ? 's' : ''} changed` : 'No changes yet'}
+            <span className="text-[0.76rem]" style={{ color: invalid ? 'var(--fail)' : 'var(--faint)' }}>
+              {invalid ? 'Fix the highlighted fields to save' : changed.length ? `${changed.length} field${changed.length > 1 ? 's' : ''} changed` : 'No changes yet'}
             </span>
           </div>
         </div>

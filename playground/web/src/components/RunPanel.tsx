@@ -1,5 +1,6 @@
 import { PHASES } from '../parties'
 import type { Catalog, Check, Run } from '../types'
+import { DigitalCredentialsButton } from './DigitalCredentialsButton'
 
 const VERDICT_STYLE: Record<string, { fg: string; bg: string; line: string }> = {
   PASS: { fg: 'var(--ok)', bg: 'var(--ok-soft)', line: 'The verifier did what the standard expects.' },
@@ -60,7 +61,9 @@ function CheckList({ title, checks, empty }: { title: string; checks: Check[]; e
   )
 }
 
-function Awaiting({ run, onContinue, onCancel }: { run: Run; onContinue: () => void; onCancel: () => void }) {
+function Awaiting({ run, verifierName, onContinue, onCancel }: {
+  run: Run; verifierName: string; onContinue: () => void; onCancel: () => void
+}) {
   const a = run.awaiting!
   return (
     <div className="rounded-xl border p-4" style={{ borderColor: 'var(--wallet)', background: 'var(--wallet-soft)' }}>
@@ -71,8 +74,9 @@ function Awaiting({ run, onContinue, onCancel }: { run: Run; onContinue: () => v
       <ol className="mt-2 list-decimal space-y-1 pl-5 text-[0.84rem]">
         {a.instructions.map((line) => <li key={line}>{line}</li>)}
       </ol>
+      {a.kind === 'dc_api' && <DigitalCredentialsButton run={run} />}
       <div className="mt-3 flex flex-wrap gap-2">
-        <a
+        {a.kind !== 'dc_api' && <a
           href={a.link}
           target="_blank"
           rel="noreferrer"
@@ -80,7 +84,7 @@ function Awaiting({ run, onContinue, onCancel }: { run: Run; onContinue: () => v
           style={{ background: 'var(--wallet)', color: 'var(--surface)' }}
         >
           {a.kind === 'inji_web_issue' ? 'Open Inji Web' : 'Open the request in Inji Web'}
-        </a>
+        </a>}
         {a.kind === 'inji_web_issue' && (
           <button type="button" onClick={onContinue} className="rounded-lg border border-line-strong bg-surface px-4 py-2 text-[0.85rem] font-semibold">
             The card is in my wallet
@@ -92,7 +96,7 @@ function Awaiting({ run, onContinue, onCancel }: { run: Run; onContinue: () => v
         <div className="mt-4 flex flex-wrap items-start gap-3 border-t border-line pt-3">
           <img src={a.qr} alt="OpenID4VP request as a QR code" className="size-36 rounded-lg bg-white p-1.5" />
           <p className="max-w-[18rem] text-[0.78rem] text-muted">
-            Or scan it with a phone wallet (cross-device flow). The answer goes to Inji Verify through the https tunnel,
+            Or scan it with a phone wallet (cross-device flow). The answer goes to {verifierName} through its https tunnel,
             so the phone doesn't need to be on this network. The wallet has to trust this verifier.
           </p>
         </div>
@@ -124,6 +128,7 @@ export function RunPanel({ run, catalog, onContinue, onCancel }: {
   const fmt = catalog.formats[run.format]
   const claims = (run.credential?.claims ?? null) as Record<string, unknown> | null
   const secs = run.duration_ms ? (run.duration_ms / 1000).toFixed(1) : null
+  const verifierName = catalog.verifiers[run.verifier]?.name ?? 'The verifier'
 
   return (
     <section className="flex min-w-0 flex-col gap-4 rounded-2xl border border-line bg-surface p-4 shadow-panel" aria-label="Run">
@@ -138,7 +143,7 @@ export function RunPanel({ run, catalog, onContinue, onCancel }: {
 
       <PhaseTracker run={run} />
 
-      {run.status === 'waiting' && run.awaiting && <Awaiting run={run} onContinue={onContinue} onCancel={onCancel} />}
+      {run.status === 'waiting' && run.awaiting && <Awaiting run={run} verifierName={verifierName} onContinue={onContinue} onCancel={onCancel} />}
 
       {run.status === 'running' && (
         <div className="flex items-center justify-between gap-3 text-[0.82rem] text-muted">
@@ -156,7 +161,7 @@ export function RunPanel({ run, catalog, onContinue, onCancel }: {
             </div>
             {run.outcome && (
               <dl className="grid grid-cols-2 gap-x-5 text-[0.78rem] tabular">
-                <dt className="text-muted">Expected</dt><dt className="text-muted">Inji Verify said</dt>
+                <dt className="text-muted">Expected</dt><dt className="text-muted">{verifierName} said</dt>
                 <dd className="font-semibold">{run.outcome.expected}</dd><dd className="font-semibold">{run.outcome.result}</dd>
               </dl>
             )}
@@ -180,7 +185,8 @@ export function RunPanel({ run, catalog, onContinue, onCancel }: {
 
       {(run.verifier_result?.checks?.length || run.playground_checks.length) ? (
         <div className="flex flex-col gap-4">
-          <CheckList title="Inji Verify's checks" checks={run.verifier_result?.checks ?? []} empty="No result from Inji Verify." />
+          <CheckList title={`${verifierName}'s checks`} checks={run.verifier_result?.checks ?? []}
+            empty={run.outcome?.result === 'REJECTED' ? `${verifierName} refused the presentation outright (see the verdict).` : `No result from ${verifierName}.`} />
           <CheckList title="Playground's own checks" checks={run.playground_checks} empty="Not run." />
         </div>
       ) : null}

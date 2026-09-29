@@ -1,0 +1,104 @@
+name: Nightly interoperability matrix
+
+# FR14. Brings up Inji Certify (eSignet login and pre-authorized) and Inji Verify on a GitHub runner,
+# runs every automated issuer / verifier / format / tamper combination through the Playground, and
+# posts the report on the run's summary page. The eSignet-login issuer logs in through MOSIP Collab's
+# live mock eSignet, and a separate step checks Collab's live Certify metadata.
+#
+# Needs two repository secrets so Certify signs with the key the published did:web points at
+# (certify/README.md, "Running this issuer on another machine"):
+#   CERTIFY_LOCAL_P12_B64   base64 of certify/docker-compose/data/CERTIFY_PKCS12/local.p12
+#   CERTIFY_KEYS_SEED_SQL   contents of certify/docker-compose/keys_seed.local.sql
+# Without them Certify makes its own keys and every Certify credential is reported INVALID.
+
+on:
+  schedule:
+    - cron: "30 20 * * *"  # 02:00 IST
+  workflow_dispatch:
+    inputs:
+      preset:
+        description: quick or full
+        default: full
+
+jobs:
+  matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: playground/bff/requirements.txt
+      - run: pip install -r playground/bff/requirements.txt
+
+      - name: Restore the issuer's signing key
+        env:
+          P12: ${{ secrets.CERTIFY_LOCAL_P12_B64 }}
+          SEED: ${{ secrets.CERTIFY_KEYS_SEED_SQL }}
+        working-directory: certify/docker-compose
+        run: |
+          if [ -z "$P12" ] || [ -z "$SEED" ]; then
+            echo "::warning::Signing key secrets not set; Certify will use fresh keys that don't match the published DID."
+            exit 0
+          fi
+          mkdir -p data/CERTIFY_PKCS12
+          echo "$P12" | base64 -d > data/CERTIFY_PKCS12/local.p12
+          # Every init script gets a fresh connection, so the seed has to switch to Certify's database itself.
+          { grep -q '^\\c inji_certify' <<< "$SEED" || echo '\c inji_certify postgres'; echo "$SEED"; } > keys_seed.local.sql
+          printf 'services:\n  database:\n    volumes:\n      - ./keys_seed.local.sql:/docker-entrypoint-initdb.d/zz_keys_seed.sql\n' > docker-compose.override.yaml
+
+      - name: Start Certify and Inji Verify
+        run: |
+          docker network create mosip_network
+          docker compose -f certify/docker-compose/docker-compose.yaml up -d --wait
+          VERIFY_PUBLIC_URL=http://localhost:8080 docker compose -f verify/docker-compose/docker-compose.yaml up -d --wait
+
+      - name: Check MOSIP Collab's live endpoints
+        run: |
+          {
+            echo "## MOSIP Collab"
+            echo
+            echo "| Endpoint | HTTP |"
+            echo "|---|---|"
+            for url in \
+              https://esignet-mock.collab.mosip.net/v1/esignet/csrf/token \
+              https://esignet-mock.collab.mosip.net/v1/esignet/oauth/.well-known/jwks.json \
+              https://injicertify-mock.collab.mosip.net/v1/certify/.well-known/openid-credential-issuer \
+              https://injicertify-mock.collab.mosip.net/v1/certify/.well-known/did.json; do
+              echo "| $url | $(curl -s -o /dev/null -w '%{http_code}' -m 20 "$url") |"
+            done
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Start the Playground
+        run: |
+          nohup python playground/bff/main.py > playground.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf localhost:5050/api/catalog > /dev/null && exit 0; sleep 2; done
+          cat playground.log; exit 1
+
+      - name: Run the matrix
+        run: |
+          preset="${{ github.event.inputs.preset || 'full' }}"
+          flag=""; [ "$preset" = "full" ] && flag="--full"
+          python playground/run_matrix.py $flag --out interoperability-report.md
+
+      - name: Publish the report
+        if: always()
+        run: |
+          [ -f interoperability-report.md ] && cat interoperability-report.md >> "$GITHUB_STEP_SUMMARY" || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: interoperability-report
+          path: |
+            interoperability-report.md
+            playground.log
+
+      - name: Service logs on failure
+        if: failure()
+        run: |
+          docker compose -f certify/docker-compose/docker-compose.yaml logs --tail 200
+          docker compose -f verify/docker-compose/docker-compose.yaml logs --tail 200

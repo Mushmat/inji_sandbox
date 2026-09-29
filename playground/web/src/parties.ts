@@ -7,14 +7,14 @@ export const PARTIES: Record<Party, { label: string; short: string; color: strin
   wallet: { label: 'Wallet', short: 'Wallet', color: 'var(--wallet)', soft: 'var(--wallet-soft)' },
   relying_party: { label: 'Relying party (Playground)', short: 'RP', color: 'var(--verifier)', soft: 'var(--verifier-soft)' },
   verifier: { label: 'Verifier', short: 'Verifier', color: 'var(--verifier)', soft: 'var(--verifier-soft)' },
-  playground: { label: 'Playground checks', short: 'Checks', color: 'var(--muted)', soft: 'var(--neutral-soft)' },
+  playground: { label: 'Playground', short: 'Playground', color: 'var(--muted)', soft: 'var(--neutral-soft)' },
 }
 
 export const PHASES: { id: Phase; label: string; protocol: string }[] = [
   { id: 'issue', label: 'Issue', protocol: 'OpenID4VCI' },
   { id: 'hold', label: 'Hold', protocol: 'Wallet storage' },
   { id: 'present', label: 'Present', protocol: 'OpenID4VP' },
-  { id: 'verify', label: 'Verify', protocol: 'Inji Verify + own checks' },
+  { id: 'verify', label: 'Verify', protocol: 'Verifier + own checks' },
 ]
 
 export function party(p: Party | null | undefined) {

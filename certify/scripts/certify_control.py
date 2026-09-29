@@ -18,6 +18,9 @@ module's status instead lets the caller show real progress and only call it
 a problem once it's actually been too long.
 """
 import logging
+import os
+import shutil
+import socket
 import subprocess
 import threading
 import time
@@ -26,8 +29,9 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-CONTAINER_NAME = "inji-certify-certify-1"
-HEALTH_URL = "http://localhost:8090/v1/certify/.well-known/did.json"
+CONTAINER_NAME = os.environ.get("CERTIFY_CONTAINER", "inji-certify-certify-1")
+HEALTH_URL = os.environ.get("CERTIFY_HEALTH_URL", "http://localhost:8090/v1/certify/.well-known/did.json")
+DOCKER_SOCKET = "/var/run/docker.sock"
 STUCK_AFTER = 900  # seconds - past this, it's a real problem, not "just slow"
 
 _lock = threading.Lock()
@@ -48,8 +52,8 @@ def get_status() -> dict:
 
 def _run(poll_interval: int, warmup: int):
     try:
-        subprocess.run(["docker", "restart", CONTAINER_NAME], check=True, capture_output=True, timeout=30)
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        _docker_restart()
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError, RuntimeError) as e:
         logger.exception("docker restart command itself failed")
         with _lock:
             _state.update(restarting=False, error=f"docker restart failed: {e}")
@@ -69,6 +73,21 @@ def _run(poll_interval: int, warmup: int):
     time.sleep(warmup)
     with _lock:
         _state.update(restarting=False, healthy=True, error=None)
+
+
+def _docker_restart():
+    """`docker restart`, or the same call on Docker's API socket when this runs inside
+    the Playground container, which has the socket but no docker CLI."""
+    if shutil.which("docker"):
+        subprocess.run(["docker", "restart", CONTAINER_NAME], check=True, capture_output=True, timeout=30)
+        return
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+        s.settimeout(60)
+        s.connect(DOCKER_SOCKET)
+        s.sendall(f"POST /containers/{CONTAINER_NAME}/restart?t=10 HTTP/1.0\r\nHost: docker\r\n\r\n".encode())
+        status_line = s.recv(256).decode(errors="replace").split("\r\n", 1)[0]
+    if " 204 " not in status_line:
+        raise RuntimeError(f"Docker API answered: {status_line}")
 
 
 def start_restart(poll_interval: int = 5, warmup: int = 10) -> bool:

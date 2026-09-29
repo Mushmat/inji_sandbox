@@ -75,12 +75,15 @@ export interface Gap {
 }
 
 export interface Awaiting {
-  kind: 'inji_web_issue' | 'inji_web_present'
+  kind: 'inji_web_issue' | 'inji_web_present' | 'dc_api'
   title: string
   link: string
   instructions: string[]
   qr?: string | null
   request_uri?: string | null
+  request_id?: string
+  response_url?: string
+  requests?: { protocol: string; data: unknown }[]
 }
 
 export interface RestartStatus {
@@ -121,6 +124,7 @@ export interface Run {
   unsupported: string | null
   awaiting: Awaiting | null
   error: string | null
+  timings?: { issue_ms?: number; present_verify_ms?: number }
   steps: Step[]
 }
 
@@ -129,4 +133,18 @@ export type RunSummary = Omit<Run, 'steps' | 'compat' | 'credential' | 'verifier
 export interface Health {
   services: { id: string; label: string; url: string; up: boolean; detail: string }[]
   did: { ok: boolean; detail: string }
+}
+
+export interface MatrixState {
+  running: boolean
+  preset: 'quick' | 'full' | null
+  total: number
+  done: number
+  current: Pick<Selection, 'issuer' | 'wallet' | 'verifier' | 'format' | 'scenario'> | null
+  run_ids: string[]
+  started_at: string | null
+  finished_at: string | null
+  cancelled: boolean
+  error: string | null
+  sizes: { quick: number; full: number }
 }

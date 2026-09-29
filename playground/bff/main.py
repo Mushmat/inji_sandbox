@@ -18,10 +18,12 @@ from pydantic import BaseModel
 import catalog
 import health
 import identity
+import matrix
 import report
 import runner
 import store
-from config import PORT, WEB_DIST
+import verifier_service
+from config import HOST, PORT, WEB_DIST
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -32,12 +34,13 @@ app = FastAPI(
     version="1.0.0",
 )
 store.init()
+app.include_router(verifier_service.router)
 
 
 class RunRequest(BaseModel):
-    issuer: Literal["certify", "test_issuer"]
-    wallet: Literal["playground_wallet", "inji_web"]
-    verifier: Literal["inji_verify"]
+    issuer: Literal["certify_preauth", "certify", "test_issuer"]
+    wallet: Literal["playground_wallet", "inji_web", "browser_wallet"]
+    verifier: Literal["inji_verify", "playground_verifier"]
     format: Literal["ldp_vc", "vc+sd-jwt", "mso_mdoc"]
     scenario: Literal["none", "altered", "replay", "wrong_type", "forged_issuer", "expired"] = "none"
 
@@ -88,6 +91,18 @@ def continue_run(run_id: str):
         raise HTTPException(409, str(e))
 
 
+class DcApiStart(BaseModel):
+    origin: str
+
+
+@app.post("/api/runs/{run_id}/dc-api", summary="Digital Credentials API runs: build the request for this page's origin")
+def dc_api_request(run_id: str, body: DcApiStart):
+    try:
+        return runner.dc_api_request(run_id, body.origin)
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+
+
 @app.post("/api/runs/{run_id}/cancel", summary="Stop a run in progress")
 def cancel_run(run_id: str):
     try:
@@ -102,8 +117,12 @@ def clear_runs():
 
 
 @app.get("/api/report.md", response_class=PlainTextResponse, summary="Interoperability report as markdown")
-def get_report():
-    return PlainTextResponse(report.markdown(store.history()), media_type="text/markdown",
+def get_report(ids: str = ""):
+    runs = store.history()
+    if ids:  # just these runs, e.g. one matrix pass
+        wanted = set(ids.split(","))
+        runs = [r for r in runs if r["id"] in wanted]
+    return PlainTextResponse(report.markdown(runs), media_type="text/markdown",
                              headers={"Content-Disposition": 'attachment; filename="interoperability-report.md"'})
 
 
@@ -120,6 +139,8 @@ def get_identity():
 def put_identity(body: IdentityUpdate):
     try:
         return identity.save(body.fields)
+    except identity.InvalidIdentity as e:
+        raise HTTPException(422, {"message": str(e), "errors": e.errors})
     except ValueError as e:
         raise HTTPException(422, str(e))
 
@@ -127,6 +148,28 @@ def put_identity(body: IdentityUpdate):
 @app.get("/api/identity/status", summary="Progress of the Certify restart after a change")
 def get_identity_status():
     return identity.restart_status()
+
+
+class MatrixRequest(BaseModel):
+    preset: Literal["quick", "full"] = "quick"
+
+
+@app.get("/api/matrix", summary="Progress of the test matrix (FR14)")
+def get_matrix():
+    return {**matrix.status(), "sizes": {p: len(matrix.combinations(p)) for p in ("quick", "full")}}
+
+
+@app.post("/api/matrix", status_code=202, summary="Run every automated combination, one after another")
+def start_matrix(body: MatrixRequest):
+    try:
+        return matrix.start(body.preset)
+    except runner.RunBusy as e:
+        raise HTTPException(409, str(e))
+
+
+@app.post("/api/matrix/cancel", summary="Stop the matrix after the current run")
+def cancel_matrix():
+    return matrix.cancel()
 
 
 @app.get("/api/wallet", summary="What the Playground wallet currently holds")
@@ -150,4 +193,4 @@ def spa(path: str):
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=PORT)
+    uvicorn.run(app, host=HOST, port=PORT)
