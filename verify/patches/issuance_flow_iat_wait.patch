@@ -1,0 +1,36 @@
+--- a/certify/scripts/issuance_flow.py
++++ b/certify/scripts/issuance_flow.py
+@@ -62,6 +62,17 @@
+     return verifier, challenge
+ 
+ 
++def _seconds_until_iat_passed(token: str, margin: float = 1.0, cap: float = 10.0) -> float:
++    """How long to wait before this JWT's iat is safely in the past here (0 if it already is)."""
++    try:
++        iat = decode_jwt_part(token.split(".")[1]).get("iat")
++    except (ValueError, IndexError, AttributeError):
++        return 0.0
++    if not isinstance(iat, (int, float)):
++        return 0.0
++    return max(0.0, min(cap, iat - time.time() + margin))
++
++
+ def decode_jwt_part(part: str) -> dict:
+     padded = part + "=" * (-len(part) % 4)
+     return json.loads(base64.urlsafe_b64decode(padded))
+@@ -314,6 +325,15 @@
+         cred_body["doctype"] = MDOC_DOCTYPE
+     cred_body["proof"] = {"proof_type": "jwt", "jwt": proof_jwt}
+ 
++    # Certify 0.14.0 only accepts an access token whose iat is strictly before
++    # its own clock, with no leeway (AccessTokenValidationFilter). If this
++    # machine's clock is even slightly behind Collab's, a request sent right
++    # after the token exchange fails with 401 invalid_token. Wait until iat
++    # has passed on this clock (Certify runs on the same machine).
++    skew_wait = _seconds_until_iat_passed(access_token)
++    if skew_wait:
++        time.sleep(skew_wait)
++
+     r = requests.post(
+         f"{CERTIFY_URL}/issuance/credential",
+         json=cred_body,

@@ -1,0 +1,22 @@
+--- a/certify/docker-compose/docker-compose.yaml
++++ b/certify/docker-compose/docker-compose.yaml
+@@ -7,6 +7,8 @@ services:
+       - POSTGRES_PASSWORD=postgres
+     volumes:
+       - ./certify_init.sql:/docker-entrypoint-initdb.d/certify_init.sql
++      # keep the database (and with it Certify's key records) across 'docker compose down'
++      - postgres-data:/var/lib/postgresql/data
+     networks:
+       - network
+     ports:
+@@ -34,7 +36,9 @@ services:
+     volumes:
+       - ./config/certify-default.properties:/home/mosip/config/certify-default.properties
+       - ./config/certify-csvdp-farmer.properties:/home/mosip/config/certify-csvdp-farmer.properties
+-      - ./data/CERTIFY_PKCS12:/home/mosip/CERTIFY_PKCS12
++      # Certify 0.14.0 runs from /home/inji, so its keystore (config-path=CERTIFY_PKCS12/local.p12) is written
++      # to /home/inji/CERTIFY_PKCS12. Mounting /home/mosip/... left the private keys inside the container.
++      - ./data/CERTIFY_PKCS12:/home/inji/CERTIFY_PKCS12
+       - ./config/farmer_identity_data.csv:/home/mosip/config/farmer_identity_data.csv
+       - ./config/vp_request_config.json:/home/mosip/config/vp_request_config.json
+     networks:

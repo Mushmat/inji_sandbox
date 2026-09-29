@@ -1,0 +1,58 @@
+{
+  "_about": "Signed by independent JavaScript implementations (jsonld-signatures Ed25519Signature2020 for the VC; a JsonWebSignature2020 ES256 signer written from @transmute/json-web-signature for the VP). The Python verifier must accept both.",
+  "issuerPublicKeyMultibase": "z6MktCGc25UAXZfLzGHH8SJwGRqNjeVPH5E7B6APp6DHLCzM",
+  "holderJwk": {
+    "kty": "EC",
+    "x": "2F7GhjQuDU3MC3L62_R8uhGQDBU3IGKyJmDyuqZnQ1A",
+    "y": "8k6hJZ1Fj9RaHuKGIuWdqMRYbTD7vAilnzzjfWUKt5g",
+    "crv": "P-256"
+  },
+  "vp": {
+    "@context": [
+      "https://www.w3.org/2018/credentials/v1",
+      "https://w3id.org/security/suites/jws-2020/v1"
+    ],
+    "type": [
+      "VerifiablePresentation"
+    ],
+    "holder": "did:jwk:eyJrdHkiOiJFQyIsIngiOiIyRjdHaGpRdURVM01DM0w2Ml9SOHVoR1FEQlUzSUdLeUptRHl1cVpuUTFBIiwieSI6IjhrNmhKWjFGajlSYUh1S0dJdVdkcU1SWWJURDd2QWlsbnp6amZXVUt0NWciLCJjcnYiOiJQLTI1NiJ9",
+    "verifiableCredential": [
+      {
+        "@context": [
+          "https://www.w3.org/2018/credentials/v1",
+          "https://piyush7034.github.io/my-files/farmer.json",
+          "https://w3id.org/security/suites/ed25519-2020/v1"
+        ],
+        "type": [
+          "VerifiableCredential",
+          "FarmerCredential"
+        ],
+        "issuer": "did:example:issuer",
+        "issuanceDate": "2026-09-01T00:00:00Z",
+        "expirationDate": "2099-01-01T00:00:00Z",
+        "credentialSubject": {
+          "id": "did:jwk:eyJrdHkiOiJFQyIsIngiOiIyRjdHaGpRdURVM01DM0w2Ml9SOHVoR1FEQlUzSUdLeUptRHl1cVpuUTFBIiwieSI6IjhrNmhKWjFGajlSYUh1S0dJdVdkcU1SWWJURDd2QWlsbnp6amZXVUt0NWciLCJjcnYiOiJQLTI1NiJ9",
+          "fullName": "External Fixture Farmer",
+          "farmerID": "FIX-001",
+          "landArea": "3 ha"
+        },
+        "proof": {
+          "type": "Ed25519Signature2020",
+          "created": "2026-09-28T17:40:44Z",
+          "verificationMethod": "did:example:issuer#key-1",
+          "proofPurpose": "assertionMethod",
+          "proofValue": "z5Ahc2657EdNCWBMi1HgfYQaVG5WwC8xiNgvnKeXAp9vLxy88FykAoLYYcQjE6JLFUDgWMxrDXi5SApVk4cJHucPT"
+        }
+      }
+    ],
+    "proof": {
+      "type": "JsonWebSignature2020",
+      "created": "2026-09-02T00:00:00Z",
+      "verificationMethod": "did:jwk:eyJrdHkiOiJFQyIsIngiOiIyRjdHaGpRdURVM01DM0w2Ml9SOHVoR1FEQlUzSUdLeUptRHl1cVpuUTFBIiwieSI6IjhrNmhKWjFGajlSYUh1S0dJdVdkcU1SWWJURDd2QWlsbnp6amZXVUt0NWciLCJjcnYiOiJQLTI1NiJ9#0",
+      "proofPurpose": "authentication",
+      "challenge": "fixture-nonce",
+      "domain": "fixture-client",
+      "jws": "eyJhbGciOiJFUzI1NiIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il19..nAzKMJjoYgeunnGOBa2v7b1vG7KPEkvvYeIeaGP0FxN5L6WeLJN5dhxRynLvBWy2qO4muqdn1B2oRxdawsnT3Q"
+    }
+  }
+}

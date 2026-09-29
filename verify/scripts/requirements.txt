@@ -1,0 +1,9 @@
+requests>=2.31
+pyjwt[crypto]>=2.8
+cryptography>=42
+PyLD>=2.0.4
+qrcode>=7.4
+# needed to import Chirayu's certify/scripts/issuance_flow.py
+cbor2>=5.6
+# only for the offline tests' model of Inji Verify, and the demo UI
+flask>=3.0

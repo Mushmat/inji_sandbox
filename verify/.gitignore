@@ -1,0 +1,5 @@
+# holder wallet: private key + stored credentials
+.wallet/
+__pycache__/
+*.pyc
+.venv/
