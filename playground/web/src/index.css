@@ -1,0 +1,181 @@
+@import "tailwindcss";
+@import "@fontsource-variable/bricolage-grotesque";
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+
+/* Layout: a test bench. The three roles sit across the top like instruments on a rack,
+   wired left to right by the two protocols; the run console sits below them.
+   Each role keeps one hue everywhere it appears: selector, inspector, sequence diagram. */
+:root {
+  --bg: #f2f3f8;
+  --surface: #ffffff;
+  --surface-2: #f7f8fc;
+  --line: #dfe2ec;
+  --line-strong: #c8ccda;
+  --ink: #141726;
+  --muted: #5d6378;
+  --faint: #8a90a4;
+  --accent: #3a33b5;
+  --accent-ink: #ffffff;
+  --accent-soft: #ebeafc;
+
+  --issuer: #1f5fcf;
+  --issuer-soft: #e8f0fe;
+  --wallet: #a35a06;
+  --wallet-soft: #fdf1e2;
+  --verifier: #6a3fc8;
+  --verifier-soft: #f1ebfd;
+  --neutral-soft: #eef0f5;
+
+  --ok: #177a43;
+  --ok-soft: #e5f5ec;
+  --fail: #bf2f28;
+  --fail-soft: #fdebea;
+  --warn: #8a6200;
+  --warn-soft: #fbf3dc;
+
+  --code-key: #3a33b5;
+  --code-string: #177a43;
+  --code-number: #a35a06;
+  --code-literal: #bf2f28;
+
+  --shadow: 0 1px 2px rgb(20 23 38 / 0.05), 0 6px 20px rgb(20 23 38 / 0.06);
+  --font-display: "Bricolage Grotesque Variable", "Bricolage Grotesque", "IBM Plex Sans", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d0f16;
+    --surface: #151823;
+    --surface-2: #1a1e2b;
+    --line: #262a3a;
+    --line-strong: #353a4e;
+    --ink: #e7e9f3;
+    --muted: #9aa0b6;
+    --faint: #6d7389;
+    --accent: #a9a6ff;
+    --accent-ink: #13122e;
+    --accent-soft: #24234a;
+    --issuer: #7fb0ff;
+    --issuer-soft: #16243d;
+    --wallet: #f0b35f;
+    --wallet-soft: #2e2211;
+    --verifier: #c3a6ff;
+    --verifier-soft: #261c3d;
+    --neutral-soft: #1f2332;
+    --ok: #5fd394;
+    --ok-soft: #0f2a1c;
+    --fail: #ff8f86;
+    --fail-soft: #33171a;
+    --warn: #e9c46a;
+    --warn-soft: #2d2512;
+    --code-key: #b3b0ff;
+    --code-string: #7fdca6;
+    --code-number: #f0b35f;
+    --code-literal: #ff9d94;
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.35), 0 8px 26px rgb(0 0 0 / 0.35);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #0d0f16;
+  --surface: #151823;
+  --surface-2: #1a1e2b;
+  --line: #262a3a;
+  --line-strong: #353a4e;
+  --ink: #e7e9f3;
+  --muted: #9aa0b6;
+  --faint: #6d7389;
+  --accent: #a9a6ff;
+  --accent-ink: #13122e;
+  --accent-soft: #24234a;
+  --issuer: #7fb0ff;
+  --issuer-soft: #16243d;
+  --wallet: #f0b35f;
+  --wallet-soft: #2e2211;
+  --verifier: #c3a6ff;
+  --verifier-soft: #261c3d;
+  --neutral-soft: #1f2332;
+  --ok: #5fd394;
+  --ok-soft: #0f2a1c;
+  --fail: #ff8f86;
+  --fail-soft: #33171a;
+  --warn: #e9c46a;
+  --warn-soft: #2d2512;
+  --code-key: #b3b0ff;
+  --code-string: #7fdca6;
+  --code-number: #f0b35f;
+  --code-literal: #ff9d94;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.35), 0 8px 26px rgb(0 0 0 / 0.35);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-issuer: var(--issuer);
+  --color-issuer-soft: var(--issuer-soft);
+  --color-wallet: var(--wallet);
+  --color-wallet-soft: var(--wallet-soft);
+  --color-verifier: var(--verifier);
+  --color-verifier-soft: var(--verifier-soft);
+  --color-neutral-soft: var(--neutral-soft);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-fail: var(--fail);
+  --color-fail-soft: var(--fail-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --font-display: var(--font-display);
+  --font-sans: var(--font-body);
+  --font-mono: var(--font-mono);
+  --shadow-panel: var(--shadow);
+}
+
+html, body { max-width: 100%; overflow-x: hidden; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+h1, h2, h3 { text-wrap: balance; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+.tabular { font-variant-numeric: tabular-nums; }
+.eyebrow {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+@keyframes step-in { from { opacity: 0.2; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+.step-in { animation: step-in 260ms ease-out; }
+@keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+.pulse { animation: pulse-dot 1.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .step-in, .pulse { animation: none; }
+}
+
+/* Mermaid draws its own SVG; keep it inside its box and on our fonts. */
+.sequence svg { max-width: 100%; height: auto; font-family: var(--font-body) !important; }
