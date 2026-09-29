@@ -38,3 +38,6 @@ docker-compose.override.yml
 
 # Written by integration/stack.py on every run (tunnel address changes)
 integration/.generated/
+
+# Playground runs and its wallet key
+playground/.data/
