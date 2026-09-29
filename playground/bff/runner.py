@@ -181,8 +181,29 @@ def resume(run_id: str) -> dict:
     return run.view()
 
 
+def recover_interrupted():
+    """Runs live in this process. One saved as in progress when the Playground stopped can never
+    finish, so close it on startup instead of leaving the bench locked on it."""
+    for summary in store.history():
+        if summary["status"] in ("running", "waiting"):
+            _close_orphan(summary["id"], "Stopped: the Playground restarted while this run was in progress.")
+
+
+def _close_orphan(run_id: str, reason: str):
+    doc = store.get(run_id)
+    if not doc:
+        return None
+    doc.update(status="error", phase="done", awaiting=None, error=reason, finished_at=_now())
+    store.save(doc)
+    return doc
+
+
 def cancel(run_id: str) -> dict:
     run = _active.get(run_id)
+    if not run:
+        saved = store.get(run_id)
+        if saved and saved["status"] in ("running", "waiting"):
+            return _close_orphan(run_id, "Cancelled.")
     if not run or run.doc["status"] not in ("running", "waiting"):
         raise ValueError("Only a run in progress can be cancelled.")
     run.doc["error"] = "Cancelled."

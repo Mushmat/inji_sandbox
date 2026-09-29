@@ -34,6 +34,7 @@ app = FastAPI(
     version="1.0.0",
 )
 store.init()
+runner.recover_interrupted()
 app.include_router(verifier_service.router)
 
 
