@@ -159,7 +159,8 @@ export default function App() {
           <>
             <RoleSelector catalog={catalog} selection={selection} onChange={setSelection} locked={live} />
             <SubjectCard doc={subject} format={selection.format} onSave={saveSubject}
-              restarting={!!restart?.restarting} elapsed={restart?.elapsed ?? 0} />
+              onReload={() => api.reloadEsignet().then(setRestart).catch((e: Error) => setError(e.message))}
+              restarting={!!restart?.restarting} pending={!!restart?.esignet_pending} elapsed={restart?.elapsed ?? 0} />
             <RunControls catalog={catalog} selection={selection} onChange={setSelection} compat={compat}
               onRun={start} busy={starting} locked={live} waitingForCertify={waitingForCertify} />
             <div className="grid min-w-0 items-start gap-5 xl:grid-cols-[minmax(22rem,27rem)_1fr]">

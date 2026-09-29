@@ -92,6 +92,7 @@ export interface RestartStatus {
   elapsed: number
   stuck: boolean
   error: string | null
+  esignet_pending: boolean
 }
 
 export interface IdentityDoc {

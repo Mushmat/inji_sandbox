@@ -128,6 +128,7 @@ def get_report(ids: str = ""):
 
 class IdentityUpdate(BaseModel):
     fields: dict[str, str]
+    reload_esignet: bool = False
 
 
 @app.get("/api/identity", summary="The mock person credentials are issued for")
@@ -135,17 +136,22 @@ def get_identity():
     return identity.read()
 
 
-@app.put("/api/identity", summary="Change the person; Certify restarts in the background to load it")
+@app.put("/api/identity", summary="Change the person. The eSignet Certify loads it on POST /api/identity/reload")
 def put_identity(body: IdentityUpdate):
     try:
-        return identity.save(body.fields)
+        return identity.save(body.fields, body.reload_esignet)
     except identity.InvalidIdentity as e:
         raise HTTPException(422, {"message": str(e), "errors": e.errors})
     except ValueError as e:
         raise HTTPException(422, str(e))
 
 
-@app.get("/api/identity/status", summary="Progress of the Certify restart after a change")
+@app.post("/api/identity/reload", summary="Restart the eSignet Certify so it reads the saved person")
+def reload_identity():
+    return identity.reload()
+
+
+@app.get("/api/identity/status", summary="Progress of the eSignet Certify restart, and whether it has the latest details")
 def get_identity_status():
     return identity.restart_status()
 

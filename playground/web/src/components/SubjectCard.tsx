@@ -146,11 +146,13 @@ function Field({ name, value, used, onChange }: { name: string; value: string; u
   )
 }
 
-export function SubjectCard({ doc, format, onSave, restarting, elapsed }: {
+export function SubjectCard({ doc, format, onSave, onReload, restarting, pending, elapsed }: {
   doc: IdentityDoc | null
   format: FormatId
   onSave: (fields: Record<string, string>) => Promise<void>
+  onReload: () => void
   restarting: boolean
+  pending: boolean
   elapsed: number
 }) {
   const [open, setOpen] = useState(false)
@@ -194,10 +196,18 @@ export function SubjectCard({ doc, format, onSave, restarting, elapsed }: {
           </div>
         </div>
         <div className="flex items-center gap-3">
-          {restarting && (
+          {restarting ? (
             <span className="flex items-center gap-2 text-[0.78rem]" style={{ color: 'var(--accent)' }}>
               <span className="pulse size-2 rounded-full" style={{ background: 'var(--accent)' }} />
-              eSignet Certify is loading the new details <span className="tabular">({elapsed}s, usually about 2 min)</span>
+              eSignet Certify is loading the new details <span className="tabular">({elapsed}s; 2 to 6 min, longer when the Mac is busy)</span>
+            </span>
+          ) : pending && (
+            <span className="flex flex-wrap items-center gap-2 text-[0.78rem]" style={{ color: 'var(--warn)' }}>
+              The eSignet-login Certify (Inji Web's) still issues the previous details.
+              <button type="button" onClick={onReload} className="rounded-md border px-2 py-0.5 font-semibold"
+                style={{ borderColor: 'var(--warn)' }}>
+                Load them now
+              </button>
             </span>
           )}
           <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open}
@@ -211,8 +221,9 @@ export function SubjectCard({ doc, format, onSave, restarting, elapsed }: {
         <div className="border-t border-line px-4 py-4">
           <p className="mb-4 max-w-[70ch] text-[0.8rem] text-muted">
             Every credential in this playground is issued for this one mock person. The pre-authorized Certify and the
-            test issuer use new details straight away. The eSignet-login Certify, the one Inji Web downloads from, reads
-            them from a file at startup, so saving restarts it in the background (about 2 minutes on a Mac).
+            test issuer use new details from the next run. The eSignet-login Certify, the one Inji Web downloads from,
+            reads them from a file when it starts, so after saving you choose when to restart it (2 to 6 minutes on a
+            Mac); nothing else waits for it.
           </p>
           <div className="grid gap-5 lg:grid-cols-[auto_1fr]">
             <div>

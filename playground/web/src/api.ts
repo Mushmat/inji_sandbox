@@ -36,6 +36,7 @@ export const api = {
   saveIdentity: (fields: Record<string, string>) =>
     call<IdentityDoc>('/api/identity', { method: 'PUT', body: JSON.stringify({ fields }) }),
   identityStatus: () => call<RestartStatus>('/api/identity/status'),
+  reloadEsignet: () => call<RestartStatus>('/api/identity/reload', { method: 'POST' }),
   matrix: () => call<MatrixState>('/api/matrix'),
   startMatrix: (preset: 'quick' | 'full') => call<MatrixState>('/api/matrix', { method: 'POST', body: JSON.stringify({ preset }) }),
   cancelMatrix: () => call<MatrixState>('/api/matrix/cancel', { method: 'POST' }),

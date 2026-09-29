@@ -1,8 +1,9 @@
 """The mock person every credential is issued for, editable from the Playground.
 
-Certify's CSV data plugin reads farmer_identity_data.csv once at startup, so a save
-restarts Certify in the background (certify/scripts/certify_control.py). The test issuer
-signs whatever it's given, so it picks up changes straight away.
+The pre-authorized Certify and the test issuer take the person with each request, so a save
+applies to them straight away. The eSignet Certify's CSV data plugin reads farmer_identity_data.csv
+once at startup, so it picks changes up only when it restarts (certify/scripts/certify_control.py),
+which happens when someone asks for it.
 """
 
 import re
@@ -51,26 +52,44 @@ class InvalidIdentity(ValueError):
         self.errors = errors
 
 
+# Set when the details change, cleared once the eSignet Certify has restarted and read them.
+_esignet_pending = {"value": False}
+
+
 def read() -> dict:
     return {"individual_id": identity_store.INDIVIDUAL_ID, "fields": identity_store.EDITABLE_FIELDS,
-            "identity": identity_store.read_identity(), "restart": certify_control.get_status()}
+            "identity": identity_store.read_identity(), "restart": restart_status()}
 
 
-def save(fields: dict) -> dict:
+def save(fields: dict, reload_esignet: bool = False) -> dict:
+    """Saves the person. The pre-authorized Certify and the test issuer use it from the next run.
+    The eSignet Certify reads the CSV only at startup, so it restarts only when asked, which takes
+    minutes under emulation and shouldn't hold everything else up."""
     unknown = sorted(set(fields) - set(identity_store.EDITABLE_FIELDS))
     if unknown:
         raise ValueError(f"These fields can't be edited: {', '.join(unknown)}")
     errors = validate(fields)
     if errors:
         raise InvalidIdentity(errors)
+    before = identity_store.read_identity()
     updated = identity_store.update_identity({k: v.strip() if k != "face" else v for k, v in fields.items()})
-    certify_control.start_restart()
+    if updated != before:
+        _esignet_pending["value"] = True
+    if reload_esignet:
+        reload()
     return {"individual_id": identity_store.INDIVIDUAL_ID, "fields": identity_store.EDITABLE_FIELDS,
-            "identity": updated, "restart": certify_control.get_status()}
+            "identity": updated, "restart": restart_status()}
+
+
+def reload() -> dict:
+    """Restart the eSignet Certify so it reads the saved details."""
+    if certify_control.start_restart():
+        _esignet_pending["value"] = False  # it reads the file as it starts, so these details are covered
+    return restart_status()
 
 
 def restart_status() -> dict:
-    return certify_control.get_status()
+    return {**certify_control.get_status(), "esignet_pending": _esignet_pending["value"]}
 
 
 def certify_restarting() -> bool:
