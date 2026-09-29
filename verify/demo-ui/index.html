@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inji Verify — Present &amp; Verify Demo</title>
+<style>
+  :root {
+    --bg: #f4f5f8;
+    --panel: #ffffff;
+    --panel-2: #fafbfc;
+    --border: #e2e4ea;
+    --text: #14151a;
+    --muted: #6b7080;
+    --accent: #3730a3;
+    --accent-soft: #eeedfb;
+    --ok: #15803d;
+    --ok-soft: #ecfdf3;
+    --fail: #b91c1c;
+    --fail-soft: #fef2f2;
+    --shadow: 0 1px 2px rgba(16,17,26,0.04), 0 4px 16px rgba(16,17,26,0.06);
+    --radius: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1015;
+      --panel: #17181f;
+      --panel-2: #1c1e26;
+      --border: #2a2c36;
+      --text: #eceef3;
+      --muted: #9a9ead;
+      --accent: #a5b4fc;
+      --accent-soft: #23244a;
+      --ok: #4ade80;
+      --ok-soft: #10281a;
+      --fail: #fca5a5;
+      --fail-soft: #2c1616;
+      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.35);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { overflow-x: hidden; max-width: 100%; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.45;
+  }
+  .topbar {
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+  }
+  .topbar h1 { font-size: 1.25rem; margin: 0 0 2px; letter-spacing: -0.01em; }
+  .topbar p { margin: 0; color: var(--muted); font-size: 0.88rem; }
+
+  .layout {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 24px 16px 64px;
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: 20px;
+    align-items: start;
+  }
+  @media (max-width: 780px) {
+    .layout { grid-template-columns: 1fr; }
+  }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+  }
+  .panel-header {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .panel-header h2 { font-size: 0.92rem; margin: 0; font-weight: 600; }
+  .panel-body { padding: 16px; }
+
+  /* Identity panel */
+  .field { margin-bottom: 10px; }
+  .field label {
+    display: block;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--muted);
+    margin-bottom: 3px;
+  }
+  .field input, .field select {
+    width: 100%;
+    padding: 7px 9px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: var(--panel-2);
+    color: var(--text);
+    font-size: 0.86rem;
+    font-family: inherit;
+  }
+  .field input:focus, .field select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .field input[type="date"] { color-scheme: light dark; }
+
+  button {
+    font-family: inherit;
+    cursor: pointer;
+    border-radius: 8px;
+    font-size: 0.86rem;
+    border: 1px solid transparent;
+    transition: opacity 0.15s;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .btn-primary {
+    background: var(--accent);
+    color: white;
+    padding: 9px 14px;
+    width: 100%;
+    font-weight: 600;
+  }
+  .btn-secondary {
+    background: transparent;
+    color: var(--accent);
+    border-color: var(--accent);
+    padding: 9px 14px;
+    width: 100%;
+  }
+  .btn-primary:hover:not(:disabled), .btn-secondary:hover:not(:disabled) { opacity: 0.85; }
+
+  .restart-banner {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.8rem;
+    color: var(--accent);
+    background: var(--accent-soft);
+    border-radius: 8px;
+    padding: 8px 10px;
+    margin-top: 10px;
+  }
+  .restart-banner.show { display: flex; }
+  .restart-banner.success { color: var(--ok); background: var(--ok-soft); }
+  .restart-banner.error { color: var(--fail); background: var(--fail-soft); }
+
+  .photo-box {
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--panel-2);
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .photo-box img, .photo-box video { width: 100%; height: 100%; object-fit: cover; }
+  .photo-actions { display: flex; gap: 8px; margin-top: 8px; }
+  .photo-actions button { width: auto; flex: 1; padding: 7px 10px; font-size: 0.8rem; }
+  .spinner {
+    width: 13px; height: 13px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Format cards */
+  .formats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  @media (max-width: 620px) { .formats { grid-template-columns: 1fr; } }
+  .format-card {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+    cursor: pointer;
+    background: var(--panel-2);
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .format-card:hover { border-color: var(--accent); }
+  .format-card.selected { border-color: var(--accent); background: var(--accent-soft); }
+  .format-card .fmt-name { font-weight: 600; font-size: 0.88rem; margin-bottom: 3px; }
+  .format-card .fmt-desc { font-size: 0.76rem; color: var(--muted); }
+
+  .run-row { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
+
+  .badge {
+    display: inline-block;
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 2px 9px;
+    border-radius: 999px;
+  }
+  .badge.ok { background: var(--ok-soft); color: var(--ok); }
+  .badge.fail { background: var(--fail-soft); color: var(--fail); }
+  .badge.neutral { background: var(--accent-soft); color: var(--accent); }
+
+  /* Steps */
+  .step {
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    margin-bottom: 6px;
+    overflow: hidden;
+  }
+  .step-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    background: var(--panel-2);
+  }
+  .step-head .method {
+    font-family: ui-monospace, monospace;
+    font-size: 0.72rem;
+    color: var(--muted);
+    min-width: 34px;
+  }
+  .step-head .name { flex: 1; }
+  .step-head .chev { color: var(--muted); font-size: 0.75rem; transition: transform 0.15s; }
+  .step.expanded .chev { transform: rotate(90deg); }
+  .step-detail {
+    display: none;
+    padding: 10px 12px;
+    border-top: 1px solid var(--border);
+  }
+  .step.expanded .step-detail { display: block; }
+
+  pre {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 10px;
+    overflow-x: auto;
+    font-size: 0.76rem;
+    white-space: pre-wrap;
+    word-break: break-all;
+    margin: 0;
+  }
+
+  .kv { width: 100%; border-collapse: collapse; font-size: 0.84rem; table-layout: fixed; }
+  .kv td { padding: 5px 8px; border-bottom: 1px solid var(--border); vertical-align: top; word-break: break-all; overflow-wrap: break-word; }
+  .kv td:first-child { color: var(--muted); width: 40%; font-family: ui-monospace, monospace; font-size: 0.78rem; }
+  .kv tr:last-child td { border-bottom: none; }
+  .kv img.thumb { max-width: 100%; max-height: 120px; border-radius: 6px; display: block; }
+  .truncatable { font-family: ui-monospace, monospace; font-size: 0.78rem; }
+  .show-toggle { font-size: 0.76rem; color: var(--accent); text-decoration: none; white-space: nowrap; }
+  .show-toggle:hover { text-decoration: underline; }
+
+  .empty { color: var(--muted); font-size: 0.86rem; padding: 8px 0; }
+  .section-title { font-size: 0.78rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; margin: 14px 0 6px; }
+  .section-title:first-child { margin-top: 0; }
+  details.raw { margin-top: 10px; }
+  details.raw summary { cursor: pointer; font-size: 0.8rem; color: var(--accent); }
+
+  .howto {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 14px 16px 0;
+  }
+  .howto ol {
+    margin: 0;
+    padding-left: 18px;
+    font-size: 0.84rem;
+    color: var(--muted);
+  }
+  .howto li { margin-bottom: 2px; }
+  .field-hint { font-size: 0.74rem; color: var(--muted); margin: 2px 0 0; }
+  /* verify/ additions */
+  .pill { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; padding: 4px 0; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+  .dot.ok { background: var(--ok); }
+  .dot.fail { background: var(--fail); }
+  .pill .detail { color: var(--muted); font-size: 0.74rem; display: block; word-break: break-word; }
+  .mono { font-family: ui-monospace, monospace; font-size: 0.76rem; word-break: break-all; }
+  .cred { border: 1px solid var(--border); border-radius: 9px; padding: 9px 10px; margin-bottom: 8px; background: var(--panel-2); font-size: 0.8rem; }
+  .cred .top { display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-bottom: 4px; }
+  .cred .src { color: var(--muted); font-size: 0.74rem; }
+  .stack { display: flex; flex-direction: column; gap: 8px; }
+  .format-card.disabled { cursor: not-allowed; opacity: 0.55; }
+  .format-card.disabled:hover { border-color: var(--border); }
+  .scenario-explain { font-size: 0.8rem; color: var(--muted); margin: 6px 0 0; }
+  .actor { font-size: 0.66rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; padding: 1px 7px; border-radius: 999px; min-width: 70px; text-align: center; }
+  .actor.verifier { background: var(--accent-soft); color: var(--accent); }
+  .actor.wallet { background: #fff4e5; color: #9a5b00; }
+  .actor.issuer { background: #eef6ff; color: #1d4ed8; }
+  .actor.playground { background: var(--panel-2); color: var(--muted); border: 1px solid var(--border); }
+  @media (prefers-color-scheme: dark) {
+    .actor.wallet { background: #2e2310; color: #fbbf24; }
+    .actor.issuer { background: #13233f; color: #93c5fd; }
+  }
+  .step-note { font-size: 0.78rem; color: var(--muted); margin: 0 0 8px; }
+  .verdict { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }
+  .verdict > div { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; background: var(--panel-2); }
+  .verdict .lbl { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); }
+  .verdict .val { font-size: 1.1rem; font-weight: 700; margin-top: 2px; }
+  .verdict .val.ok { color: var(--ok); }
+  .verdict .val.fail { color: var(--fail); }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 700px) { .two-col, .verdict { grid-template-columns: 1fr; } }
+  .check { display: flex; gap: 8px; font-size: 0.8rem; padding: 5px 0; border-bottom: 1px solid var(--border); }
+  .check:last-child { border-bottom: none; }
+  .check .icon { width: 16px; flex-shrink: 0; font-weight: 700; }
+  .check .icon.ok { color: var(--ok); }
+  .check .icon.fail { color: var(--fail); }
+  .check .icon.na { color: var(--muted); }
+  .check .why { color: var(--muted); font-size: 0.74rem; display: block; word-break: break-word; }
+  .gap { border: 1px solid var(--fail); background: var(--fail-soft); color: var(--text); border-radius: 10px; padding: 10px 12px; margin: 12px 0; font-size: 0.84rem; }
+  .gap strong { color: var(--fail); }
+  .notice { border-radius: 9px; padding: 9px 11px; font-size: 0.8rem; background: var(--accent-soft); color: var(--text); margin-top: 10px; }
+  .notice.fail { background: var(--fail-soft); }
+  .qr-wrap { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+  .qr-wrap img { width: 300px; height: 300px; background: white; border-radius: 10px; border: 1px solid var(--border); padding: 6px; }
+  .qr-side { flex: 1; min-width: 200px; font-size: 0.82rem; }
+  .btn-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; align-items: center; }
+  .btn-row button { width: auto; padding: 10px 18px; }
+  .small-btn { font-size: 0.78rem; padding: 7px 10px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>Inji Verify — Present &amp; Verify Demo</h1>
+  <p>A holder wallet presents a credential issued by Inji Certify to a local Inji Verify over OpenID4VP. The playground runs its own checks next to Inji Verify's and flags where they disagree. Verifier piece only — not the team's playground UI.</p>
+</div>
+
+<div class="howto">
+  <ol>
+    <li>Receive a credential into the wallet on the left (from Certify, through Chirayu's issuance flow).</li>
+    <li>Pick the format and a scenario. "Honest" should be accepted; the others should be rejected.</li>
+    <li>Click "Present with built-in wallet" and watch verifier and wallet talk. Or show a QR code to a phone wallet.</li>
+    <li>The result compares what Inji Verify said with what it should have said, and lists the checks on both sides.</li>
+  </ol>
+</div>
+
+<div class="layout">
+  <!-- Left: services + wallet -->
+  <div class="stack">
+    <div class="panel">
+      <div class="panel-header"><h2>Services</h2><button class="btn-secondary small-btn" id="btn-refresh" style="width:auto">Refresh</button></div>
+      <div class="panel-body" id="services"><p class="empty">Checking…</p></div>
+    </div>
+    <div class="panel">
+      <div class="panel-header"><h2>Holder wallet</h2></div>
+      <div class="panel-body">
+        <div id="wallet"><p class="empty">Loading…</p></div>
+        <div class="stack" style="margin-top:10px">
+          <button class="btn-primary" id="btn-receive">Receive from Certify</button>
+          <button class="btn-secondary" id="btn-receive-test" title="Signed by a local did:key test issuer. Use only if Certify or Collab eSignet is unavailable.">Use offline test issuer</button>
+        </div>
+        <div id="receive-status"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main column -->
+  <div style="display:flex; flex-direction:column; gap:20px; min-width:0">
+    <div class="panel">
+      <div class="panel-header"><h2>What to present</h2></div>
+      <div class="panel-body">
+        <div class="formats" id="formats"></div>
+        <div class="field" style="margin-top:14px">
+          <label for="scenario">Scenario</label>
+          <select id="scenario"></select>
+          <p class="scenario-explain" id="scenario-explain"></p>
+        </div>
+        <div class="btn-row">
+          <button class="btn-primary" id="btn-present">Present with built-in wallet</button>
+          <button class="btn-secondary" id="btn-phone">Present with a real wallet (Inji Web / QR)</button>
+          <span id="present-status"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" id="phone-panel" style="display:none">
+      <div class="panel-header"><h2>Present with a real wallet</h2><button class="btn-secondary small-btn" id="btn-phone-cancel" style="width:auto">Stop waiting</button></div>
+      <div class="panel-body" id="phone"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header"><h2>Protocol steps</h2></div>
+      <div class="panel-body" id="steps"><p class="empty">Nothing run yet.</p></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header"><h2>Result</h2></div>
+      <div class="panel-body" id="result"><p class="empty">Nothing to show yet.</p></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const FORMATS = [
+  { id: "ldp_vc", name: "JSON-LD", desc: "W3C VC. Presentation signed JsonWebSignature2020 (ES256)" },
+  { id: "vc+sd-jwt", name: "SD-JWT", desc: "Only farmerID is disclosed, with a key-binding JWT" },
+  { id: "mso_mdoc", name: "mDoc", desc: "Not over OpenID4VP in Inji Verify 0.18.2", disabled: true },
+];
+let state = { format: "ldp_vc", scenario: "none", scenarios: {}, mdocReason: "", wallet: null, busy: false, phoneTimer: null };
+
+const $ = (id) => document.getElementById(id);
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+const short = (s, n = 28) => (s && s.length > n ? s.slice(0, n) + "…" : s || "");
+const json = (v) => escapeHtml(typeof v === "string" ? v : JSON.stringify(v, null, 2));
+
+async function api(path, body) {
+  const opts = body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
+  const res = await fetch(path, opts);
+  let data;
+  try { data = await res.json(); } catch { data = { ok: false, error: `HTTP ${res.status}` }; }
+  return data;
+}
+
+// ---------------------------------------------------------------- services
+async function loadStatus() {
+  $("services").innerHTML = '<p class="empty">Checking…</p>';
+  const s = await api("/api/status");
+  state.scenarios = s.scenarios || {};
+  state.mdocReason = s.mdoc_reason || "";
+  const row = (ok, name, detail) => `<div class="pill"><span class="dot ${ok ? "ok" : "fail"}"></span><div>${escapeHtml(name)}<span class="detail">${escapeHtml(detail)}</span></div></div>`;
+  $("services").innerHTML =
+    row(s.verifier?.ok, "Inji Verify", s.verifier?.ok ? s.verifier.url : `not reachable at ${s.verifier?.url}`) +
+    row(s.certify?.ok, "Inji Certify", s.certify?.ok ? "reachable" : "not reachable (start certify/docker-compose)") +
+    row(s.patch?.ok, "Holder-key patch", s.patch?.ok ? "applied to issuance_flow.py" : s.patch?.detail);
+  renderScenarios();
+  renderFormats();
+}
+
+// ------------------------------------------------------------------ wallet
+async function loadWallet() {
+  renderWallet(await api("/api/wallet"));
+}
+function renderWallet(w) {
+  state.wallet = w;
+  const creds = Object.entries(w.credentials || {});
+  let html = `<div class="field"><label>Holder DID</label><div class="mono" title="${escapeHtml(w.holder_did)}">${escapeHtml(short(w.holder_did, 60))}</div></div>
+    <div class="field"><label>Key</label><div style="font-size:0.84rem">${escapeHtml(w.key_type)}</div></div>
+    <div class="section-title">Credentials</div>`;
+  if (!creds.length) html += '<p class="empty">None yet.</p>';
+  for (const [fmt, c] of creds) {
+    const claims = c.preview?.claims || {};
+    html += `<div class="cred"><div class="top"><strong>${fmt === "ldp_vc" ? "JSON-LD" : "SD-JWT"}</strong>
+      <span class="badge ${c.bound_to_wallet_key ? "ok" : "fail"}">${c.bound_to_wallet_key ? "bound to this wallet" : "other holder key"}</span></div>
+      <div class="src">${escapeHtml(c.source)} · ${escapeHtml(c.received_at)}</div>
+      <div style="margin-top:4px">${escapeHtml(claims.fullName || "")}${claims.farmerID ? " · farmerID " + escapeHtml(claims.farmerID) : ""}</div>
+      ${c.preview?.selectively_disclosable ? `<div class="src">selectively disclosable: ${escapeHtml(c.preview.selectively_disclosable.join(", "))}</div>` : ""}
+    </div>`;
+  }
+  $("wallet").innerHTML = html;
+  $("btn-receive").textContent = `Receive ${state.format === "ldp_vc" ? "JSON-LD" : "SD-JWT"} from Certify`;
+}
+async function receive(source) {
+  if (state.busy || state.format === "mso_mdoc") return;
+  setBusy(true, source === "test" ? "Issuing with the test issuer…" : "Running Chirayu's issuance flow against Certify…", "receive-status");
+  const r = await api("/api/wallet/receive", { format: state.format, source });
+  setBusy(false, "", "receive-status");
+  if (r.steps?.length) renderSteps(r.steps);
+  if (r.wallet_summary) renderWallet(r.wallet_summary);
+  $("receive-status").innerHTML = r.ok
+    ? `<div class="notice">Stored in the wallet${r.wallet?.bound_to_wallet_key ? ", bound to the wallet's key." : ". Warning: bound to a different key."}</div>`
+    : `<div class="notice fail">${escapeHtml(r.error)}</div>`;
+}
+
+// --------------------------------------------------------- format/scenario
+function renderFormats() {
+  $("formats").innerHTML = FORMATS.map(f => `
+    <div class="format-card ${f.id === state.format ? "selected" : ""} ${f.disabled ? "disabled" : ""}" data-id="${f.id}" title="${f.disabled ? escapeHtml(state.mdocReason) : ""}">
+      <div class="fmt-name">${f.name}</div><div class="fmt-desc">${f.desc}</div></div>`).join("");
+  document.querySelectorAll(".format-card").forEach(el => el.onclick = () => {
+    const f = FORMATS.find(x => x.id === el.dataset.id);
+    if (f.disabled) { showMessage(`<div class="notice">${escapeHtml(state.mdocReason)}</div>`); return; }
+    state.format = f.id; renderFormats(); if (state.wallet) renderWallet(state.wallet);
+  });
+}
+function renderScenarios() {
+  const sel = $("scenario");
+  sel.innerHTML = Object.entries(state.scenarios).map(([id, s]) =>
+    `<option value="${id}" ${id === state.scenario ? "selected" : ""}>${escapeHtml(s.label)} (expected ${s.expected})</option>`).join("");
+  sel.onchange = () => { state.scenario = sel.value; explain(); };
+  explain();
+}
+function explain() { $("scenario-explain").textContent = state.scenarios[state.scenario]?.explain || ""; }
+
+// ----------------------------------------------------------------- present
+async function present() {
+  if (state.busy) return;
+  stopPhone();
+  setBusy(true, "Running…", "present-status");
+  $("steps").innerHTML = '<p class="empty">Running…</p>';
+  const r = await api("/api/present", { format: state.format, scenario: state.scenario });
+  setBusy(false, "", "present-status");
+  renderSteps(r.steps || []);
+  renderResult(r);
+}
+
+async function presentPhone() {
+  if (state.busy) return;
+  stopPhone();
+  const r = await api("/api/present/phone", { format: state.format, scenario: state.scenario });
+  renderSteps(r.steps || []);
+  if (!r.ok) { renderResult(r); return; }
+  $("phone-panel").style.display = "";
+  const local = /localhost|127\.0\.0\.1/.test(r.response_uri || "");
+  $("phone").innerHTML = `<div class="qr-wrap">
+      ${r.qr ? `<img src="${r.qr}" alt="QR code with the openid4vp request">` : '<p class="empty">Install the qrcode package to show a QR code.</p>'}
+      <div class="qr-side">
+        <p style="margin-top:0">Scan with a wallet app that holds a matching credential. Waiting for it to answer… <span class="spinner" style="display:inline-block;vertical-align:middle"></span></p>
+        <div class="field"><label>Response URI (the phone posts here)</label><div class="mono">${escapeHtml(r.response_uri)}</div></div>
+        ${local ? `<div class="notice fail">${escapeHtml(r.hint)}</div>` : ""}
+        ${r.inji_web_link ? `<p><a class="btn-primary" style="display:inline-block;width:auto;padding:8px 14px;text-decoration:none;border-radius:8px" href="${escapeHtml(r.inji_web_link)}" target="_blank" rel="noopener">Open in Inji Web</a></p><p class="field-hint">Inji Web on this computer: sign in first, then this opens its "share with verifier" page.</p>` : ""}
+        <details class="raw"><summary>openid4vp link</summary><pre>${escapeHtml(r.authorization_request_uri)}</pre></details>
+      </div></div>`;
+  $("result").innerHTML = '<p class="empty">Waiting for the phone…</p>';
+  state.phoneTimer = setInterval(async () => {
+    const p = await api(`/api/present/phone/${r.id}`);
+    if (p.steps) renderSteps(p.steps);
+    if (p.done || p.ok === false) { stopPhone(false); renderResult(p); }
+  }, 2000);
+}
+function stopPhone(hide = true) {
+  if (state.phoneTimer) clearInterval(state.phoneTimer);
+  state.phoneTimer = null;
+  if (hide) $("phone-panel").style.display = "none";
+  else $("phone").querySelector(".spinner")?.remove();
+}
+
+function setBusy(busy, text, where) {
+  state.busy = busy;
+  ["btn-present", "btn-phone", "btn-receive", "btn-receive-test"].forEach(id => $(id).disabled = busy);
+  $(where).innerHTML = busy ? `<span class="pill" style="color:var(--accent)"><span class="spinner"></span>${escapeHtml(text)}</span>` : "";
+}
+function showMessage(html) { $("result").innerHTML = html; }
+
+// ------------------------------------------------------------------- steps
+function renderSteps(steps) {
+  if (!steps.length) { $("steps").innerHTML = '<p class="empty">No steps.</p>'; return; }
+  $("steps").innerHTML = steps.map((s, i) => `
+    <div class="step" data-idx="${i}">
+      <div class="step-head">
+        <span class="actor ${escapeHtml(s.actor || "playground")}">${escapeHtml(s.actor || "")}</span>
+        <span class="method">${escapeHtml(s.method)}</span>
+        <span class="name">${escapeHtml(s.name)}</span>
+        <span class="badge ${s.ok ? "ok" : "fail"}">${s.status ?? (s.ok ? "ok" : "no")}</span>
+        <span class="chev">▶</span>
+      </div>
+      <div class="step-detail">
+        ${s.note ? `<p class="step-note">${escapeHtml(s.note)}</p>` : ""}
+        ${s.url ? `<div class="section-title">URL</div><div class="mono">${escapeHtml(s.url)}</div>` : ""}
+        ${s.request !== undefined && s.request !== null ? `<div class="section-title">Request</div><pre>${json(s.request)}</pre>` : ""}
+        <div class="section-title">${s.method === "LOCAL" ? "Details" : "Response"}</div><pre>${json(s.response)}</pre>
+      </div>
+    </div>`).join("");
+  document.querySelectorAll(".step-head").forEach(h => h.onclick = () => h.parentElement.classList.toggle("expanded"));
+}
+
+// ------------------------------------------------------------------ result
+const STATUS_LABEL = { EXPIRED: "VALID BUT EXPIRED", REJECTED: "REJECTED" };
+const statusText = (s) => STATUS_LABEL[s] || s;
+function checkList(list, empty) {
+  if (!list || !list.length) return `<p class="empty">${empty}</p>`;
+  return list.map(c => {
+    const cls = c.ok === true ? "ok" : c.ok === false ? "fail" : "na";
+    const icon = c.ok === true ? "✓" : c.ok === false ? "✗" : "–";
+    return `<div class="check"><span class="icon ${cls}">${icon}</span><div>${escapeHtml(c.label)}
+      ${c.detail && c.ok !== true ? `<span class="why">${escapeHtml(c.detail)}</span>` : ""}
+      ${c.ref && c.ok === false ? `<span class="why">${escapeHtml(c.ref)}</span>` : ""}</div></div>`;
+  }).join("");
+}
+function renderResult(r) {
+  if (!r.ok) {
+    $("result").innerHTML = `<div class="notice fail"><strong>Could not run the flow.</strong><br>${escapeHtml(r.error)}</div>`;
+    return;
+  }
+  const o = r.outcome, v = r.verifier_result;
+  const verdictCls = o.verdict === "PASS" ? "ok" : "fail";
+  const saidCls = v.status === o.expected || (o.expected === "INVALID" && v.status === "REJECTED") ? "ok" : "fail";
+  let html = `<div class="verdict">
+      <div><div class="lbl">Should be</div><div class="val">${escapeHtml(statusText(o.expected))}</div></div>
+      <div><div class="lbl">Inji Verify said</div><div class="val ${saidCls}">${escapeHtml(statusText(v.status))}</div></div>
+      <div><div class="lbl">Verdict</div><div class="val ${verdictCls}">${escapeHtml(o.verdict)}</div></div>
+    </div>
+    <p class="scenario-explain" style="margin-top:0">${escapeHtml(r.scenario_info?.label)}: ${escapeHtml(o.explanation)}</p>
+    ${v.detail ? `<p style="font-size:0.82rem">Inji Verify: ${escapeHtml(v.detail)}</p>` : ""}`;
+  for (const g of r.suspected_gaps || []) {
+    html += `<div class="gap"><strong>Suspected gap${g.finding ? " (" + escapeHtml(g.finding.join(", ")) + " in docs/FINDINGS.md)" : ""}.</strong> ${escapeHtml(g.summary)}</div>`;
+  }
+  html += `<div class="two-col">
+      <div><div class="section-title">Inji Verify's checks</div>${checkList(v.checks, v.status === "REJECTED" ? "Refused at submission, before any checks." : "None reported.")}</div>
+      <div><div class="section-title">Playground's own checks</div>${checkList(r.playground_checks, "None run.")}</div>
+    </div>`;
+  if (v.claims && Object.keys(v.claims).length) {
+    html += `<div class="section-title">Claims Inji Verify returned</div><table class="kv">${Object.entries(v.claims)
+      .filter(([k]) => k !== "face").map(([k, val]) => `<tr><td>${escapeHtml(k)}</td><td>${escapeHtml(typeof val === "object" ? JSON.stringify(val) : val)}</td></tr>`).join("")}</table>`;
+  }
+  if (r.presentation) html += `<details class="raw"><summary>What the wallet sent</summary><pre>${json(r.presentation)}</pre></details>`;
+  if (r.session) html += `<details class="raw"><summary>Verifier session (nonce, client_id, request link)</summary><pre>${json(r.session)}</pre></details>`;
+  $("result").innerHTML = html;
+}
+
+$("btn-refresh").onclick = () => { loadStatus(); loadWallet(); };
+$("btn-receive").onclick = () => receive("certify");
+$("btn-receive-test").onclick = () => receive("test");
+$("btn-present").onclick = present;
+$("btn-phone").onclick = presentPhone;
+$("btn-phone-cancel").onclick = () => stopPhone(true);
+renderFormats();
+loadStatus();
+loadWallet();
+</script>
+</body>
+</html>

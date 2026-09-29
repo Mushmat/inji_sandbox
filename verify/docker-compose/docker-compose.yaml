@@ -1,0 +1,80 @@
+# Inji Verify 0.18.2 (verify-service only) for the Present & Verify flow.
+#
+# Adapted from inji-verify/docker-compose/docker-compose.yml at tag v0.18.2:
+#   - own Postgres on 5434 (Certify's is on 5433), database schema from db-init/ (see FINDINGS F6)
+#   - joins mosip_network, the same external network as certify/docker-compose
+#   - no verify-ui: our demo-ui plays the relying party. Add it back from upstream if you want Inji's own screen.
+#
+#   docker network create mosip_network     # once; certify/ uses it too
+#   docker compose up -d
+#   curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8080/v1/verify/vp-request/x/status   # 404 = up
+#
+# Port 8080 taken? Use another host port, and keep response_uri in step with it:
+#   VERIFY_PORT=8082 VERIFY_PUBLIC_URL=http://localhost:8082 docker compose up -d
+#   (PowerShell: $env:VERIFY_PORT="8082"; $env:VERIFY_PUBLIC_URL="http://localhost:8082"; docker compose up -d)
+#   and run the scripts with INJI_VERIFY_URL=http://localhost:8082/v1/verify
+#
+# Phone wallets: the wallet POSTs its answer to INJI_VP_SUBMISSION_BASE_URL, so a phone needs an address
+# it can reach. Before `up`, set VERIFY_PUBLIC_URL, e.g.  VERIFY_PUBLIC_URL=http://192.168.1.20:8080
+# (your computer's LAN IP, same Wi-Fi), or an https tunnel URL.
+
+# Own project name: certify/ also lives in a folder called docker-compose, and two projects with the
+# same name would treat each other's containers as orphans.
+name: inji-verify
+
+services:
+  verify-postgres:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: inji_verify
+    volumes:
+      - ./db-init:/docker-entrypoint-initdb.d:ro
+      - verify-db:/var/lib/postgresql/data
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d inji_verify"]
+      interval: 5s
+      retries: 20
+    networks:
+      - network
+
+  verify-service:
+    image: injistack/inji-verify-service:0.18.2
+    restart: unless-stopped
+    user: root
+    depends_on:
+      verify-postgres:
+        condition: service_healthy
+    ports:
+      - "${VERIFY_PORT:-8080}:8080"
+    environment:
+      active_profile_env: default
+      DATABASE_HOST: verify-postgres
+      DATABASE_PORT: "5432"
+      DATABASE_NAME: inji_verify
+      DATABASE_SCHEMA: verify
+      DATABASE_USERNAME: postgres
+      DATABASE_PASSWORD: postgres
+      INJI_VP_REQUEST_LONG_POLLING_TIMEOUT: "55000"
+      # response_uri = this + /vp-submission/direct-post
+      INJI_VP_SUBMISSION_BASE_URL: ${VERIFY_PUBLIC_URL:-http://localhost:8080}/v1/verify
+      INJI_DID_VERIFY_URI: did:web:localhost%3A8080:v1:verify
+      INJI_DID_VERIFY_PUBLIC_KEY_URI: did:web:localhost%3A8080:v1:verify#key-0
+      INJI_KEYSTORE_FILE_PASS: mosip
+      INJI_VERIFY_REDIRECT_URI: ${VERIFY_PUBLIC_URL:-http://localhost:8080}
+      INJI_VERIFY_RESPONSE_CODE_EXPIRY_TIME_IN_MINS: "5"
+      INJI_VERIFY_CLAIMS_WITH_META_DATA: _sd,_sd_alg,iss,cnf,sub,aud,exp,nbf,iat,cti
+    networks:
+      - network
+
+volumes:
+  verify-db:
+
+networks:
+  network:
+    name: mosip_network
+    external: true
