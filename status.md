@@ -1,85 +1,85 @@
-# Status — Chirayu — Issuer (Inji Certify)
+# Status — Inji Interoperability Playground
 
-Last updated: 2026-09-24
+Last updated: 2026-10-05
 
 ## Summary
 
-The issuer side is done and tested — Inji Certify is running locally via
-Docker Compose, issuing three credential formats (JSON-LD, SD-JWT, mDoc/mDL)
-through a real, verified OpenID4VCI flow. FR1 (issuer side), FR3, FR6, and
-FR9 (good-to-have third format) are all complete. There's also a demo UI to
-show it working without touching a terminal.
+The three pipelines (Certify, the wallet, Present & Verify) are integrated and run
+together from one command, with the Playground on top: one page that runs issue →
+hold → present → verify across any issuer, wallet and verifier, shows every protocol
+message, and records whether each module behaved the way the standards say it should.
+All mandatory requirements (FR1–FR7) work and have been tested by hand end to end,
+including the real Inji Web wallet. Most good-to-have and bonus items are done too.
 
-## What's done
+How to run it, on macOS or Windows: [README.md](README.md#run-it).
 
-**Issuer running, all three formats working**
-- Inji Certify + Postgres + Nginx via Docker Compose, with real health
-  checks (not just "container started")
-- Three credential formats, all seeded automatically on a fresh database:
-  - `FarmerCredential` — W3C VC JSON-LD, `Ed25519Signature2020`
-  - `FarmerCredentialSdJwt` — SD-JWT VC, selective disclosure on `farmerID`
-  - `MobileDrivingLicense` — ISO 18013-5 mDoc/mDL, CBOR + COSE_Sign1, EC
-    P-256 holder key (the one place holder-key type actually differs by
-    format — COSE only supports EC, not RSA)
-- Full pre-authorized-code OpenID4VCI flow tested end-to-end against MOSIP
-  Collab's public mock eSignet (no account/login needed on our side — Collab
-  ships a public demo client for exactly this) — real signed credentials
-  come back, not mocked responses
+## What works
 
-**Backend quality**
-- Every network call has a timeout and a proper exception boundary — a
-  network drop or slow response returns a clean error, never a crash
-- 14 automated assertions (`test_credential_shape.py`) checking actual
-  credential structure per format, not just HTTP status codes
-- Identity data (the mock person credentials get issued for) is editable
-  live from the UI, including a real device-camera photo capture — no more
-  hand-editing a CSV
+**One stack, one command.** `python integration/stack.py up` starts Certify (two
+instances, same keys and `did:web`), Inji Verify, Mimoto + Inji Web, two https tunnels
+and the Playground, all in Docker. `down` stops it and keeps the data.
 
-**Demo UI** (`certify/demo-ui/`)
-- Pick a format, issue a credential, watch the protocol steps live, see the
-  result rendered per format (claims table / decoded SD-JWT payload /
-  decoded mDoc claims)
-- Identity editor only shows the fields the selected format actually uses
-  (mDoc needs 3 fields, JSON-LD/SD-JWT use the full profile)
-- Saving identity data restarts Certify in the background with live
-  progress — a real constraint (the bundled plugin caches data at startup,
-  confirmed by reading its source), not a bug
+**Issuers.** Inji Certify with the pre-authorized code flow (Certify writes the
+credential offer itself and takes the person's details with each offer), Inji Certify
+with an eSignet login (what Inji Web uses), and a non-Inji `did:key` test issuer.
+JSON-LD, SD-JWT and mDoc.
 
-**Docs**
-- `certify/README.md` — setup, prerequisites, how to run everything
-- `certify/API_DOCUMENTATION.md` — every endpoint we use, plus every real
-  gotcha hit along the way (proof JWT claims, OAuth scope quirks, the EC vs
-  RSA holder key issue) — useful for anyone integrating against this later
+**Wallets.** A scripted Playground wallet (can misbehave on purpose for tamper tests),
+Inji Web (driven by a person, guided by the page), and a browser wallet through the
+Digital Credentials API.
 
-## Not done yet
+**Verifiers.** Inji Verify, and our own Playground verifier: a non-Inji OpenID4VP
+relying party written from the specs.
 
-- **DID hosting** — `did-url` points at `did:web:mushmat.github.io:inji_sandbox`
-  and the DID document is at `/docs/did.json` on `feature/certify-issuer`.
-  Served by GitHub Pages from that branch's `/docs` folder once the repo is
-  public. Anyone running their own Certify needs the shared keystore to
-  match it — see "Running this issuer on another machine" in
-  `certify/README.md`.
-- **BFF / wallet / verifier integration** — deliberately not started.
-  Connecting our issuer to Inji Wallet needs one config entry added
-  (`mimoto-issuers-config.json`, already in our `docker-compose/config/`
-  folder, ready to fill in with our issuer's details whenever the wallet
-  piece exists). The Playground BFF itself should wait until all three
-  pipelines exist — building it against only one real backend means
-  guessing at the other two APIs and likely redoing it later.
+**The Playground page.** Issuer → Wallet → Verifier selector, format and tamper
+scenarios, a live protocol inspector with every request and response (JWTs decodable
+in place), a live sequence diagram, an editable credential subject (with camera or
+uploaded photo and field validation), a report with a compatibility matrix, flow
+health (success rates and latency), filterable history and markdown export, and a
+test matrix that runs every automated combination.
 
-## For whoever picks up integration later
+**Tests.** 33 backend tests (every tamper scenario against the Playground verifier over
+real HTTP, offline), 10 frontend tests, 35 offline verifier tests, 14 live Certify
+tests. GitHub runs the offline suites on every push, and the full matrix every night.
 
-Everything needed to plug into this issuer is in
-`certify/API_DOCUMENTATION.md` — the exact endpoints, request/response
-shapes for all three formats, and the specific gotchas (missing `iat` on
-the proof JWT, OAuth scope needing to match what's registered on the auth
-server, EC vs RSA holder keys) that cost real debugging time and are worth
-not re-discovering.
+## What we found
 
-## Try it yourself
+Inji Verify 0.18.2 accepts a wrong credential type (F2), an SD-JWT replayed from another
+session (F3), and a credential signed by someone else's key that names Certify as the
+issuer (F10). The Playground verifier catches all three. The full list, with how to
+reproduce each, is in [verify/docs/FINDINGS.md](verify/docs/FINDINGS.md), the "Known
+gaps" in [wallet/README.md](wallet/README.md) and "What we found" in
+[certify/README.md](certify/README.md).
 
-```bash
-cd certify/docker-compose && docker-compose up -d
-cd ../demo-ui && source ../.venv/bin/activate && python3 server.py
-```
-Open `http://localhost:5001`. Full setup instructions in `certify/README.md`.
+## Fixed since the last update
+
+- **Nightly matrix failures.** The key seed was never loaded in CI (Docker Compose skips
+  the override file once `-f` is used), so Certify signed with keys that didn't match the
+  published DID; the pre-authorized Certify rejected tokens carrying MOSIP's 92 KB sample
+  photo (header limit raised); and the Playground verifier accepted a signature it
+  couldn't check (it now refuses). The workflow now stops early if the keys don't match.
+- **The same Compose rule in `stack.py`**: a teammate's shared signing key would have been
+  ignored. `stack.py` now loads it.
+- **Fresh Windows machines**: the wallet keystore is now generated inside Docker, so the
+  host needs no Python libraries.
+- Saving the person no longer restarts Certify; the eSignet Certify reloads on request.
+- Runs interrupted by a restart close themselves; runs wait for the services they need.
+
+## Known limits
+
+- Inji Web and Inji Verify can't take mDoc over OpenID4VP, and Inji Web can't present
+  SD-JWT. These are MOSIP-side; runs record them as UNSUPPORTED or a known limit.
+- The Inji Wallet phone app and the Digital Credentials API need a wallet configured
+  for our issuer and verifiers. Our side is built and tested; a live run needs that
+  wallet. Not required: the Inji Web deep link covers FR4 and FR13.
+- Each machine running Certify needs the shared signing key, or its credentials won't
+  verify against the published DID.
+
+## Still to do for submission
+
+1. Record the 3–5 minute demo video.
+2. Commit a full-matrix report as `docs/interoperability-report.md` (from a passing
+   nightly run's artifact) and remove the old quick-matrix one at the repo root.
+3. FR15: file F2 and F3 on `mosip/inji-verify`; report F10 to MOSIP privately first.
+4. Commits from every teammate on `main`.
+5. Make sure the committed person photo is a stand-in, not a real face.

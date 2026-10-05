@@ -99,8 +99,13 @@ def check_local_files():
     if not (WALLET_DIR / ".env").exists():
         sys.exit("wallet/docker-compose/.env is missing. Create your Google OAuth client first, see wallet/README.md step 3.")
     if not (WALLET_DIR / "certs" / "oidckeystore.p12").exists():
+        # Built inside the Playground image, which has the crypto libraries, so the host only
+        # needs plain Python to run this script.
         print("Wallet keystore missing, generating it...")
-        run([sys.executable, str(ROOT / "integration" / "make_wallet_keystore.py")])
+        env = dict(os.environ)  # the Playground image is multi-arch, no emulation needed
+        compose("-f", str(PLAYGROUND_COMPOSE), "build", env=env)
+        run(["docker", "run", "--rm", "-v", f"{ROOT}:/app", "-w", "/app", "inji-playground:local",
+             "python", "integration/make_wallet_keystore.py"], env=env)
 
 
 def start_tunnel(name: str, target: str) -> str:

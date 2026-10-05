@@ -215,8 +215,23 @@ private keys, so they're shared directly between teammates, never committed
        volumes:
          - ./keys_seed.local.sql:/docker-entrypoint-initdb.d/zz_keys_seed.sql
    ```
-4. `docker-compose down -v && docker-compose up -d`
-5. Check that `/.well-known/did.json` matches the published one
+4. `docker compose down -v`, then start everything with `integration/stack.py up`. Note
+   that `docker compose -f ...` skips the override file unless you pass it with a second
+   `-f`; `stack.py` does that for you
+5. Check that `/.well-known/did.json` matches the published one (the Playground's header
+   shows "DID keys match")
+
+**Making the files to send (whoever holds the keys).** With Certify's database running,
+from the repo root:
+
+```bash
+cp certify/docker-compose/data/CERTIFY_PKCS12/local.p12 ~/Desktop/local.p12
+{ printf '%s\n' '\c inji_certify postgres'; docker exec inji-certify-database-1 pg_dump -U postgres -d inji_certify \
+    --data-only --inserts --column-inserts --table=certify.key_alias --table=certify.key_store; } > ~/Desktop/keys_seed.local.sql
+```
+
+Use `printf`, not `echo`: zsh's `echo` treats `\c` as "stop printing" and drops the line.
+Send both by direct message, never through git or a public channel.
 
 ## What we found
 

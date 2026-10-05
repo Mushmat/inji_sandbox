@@ -51,36 +51,94 @@ offer itself (pre-authorized code), so the person's details travel with each off
 
 ## Run it
 
-You need Docker Desktop (give it about 12 GB of memory), Python 3.9+ and an internet
-connection (the eSignet login and the https tunnels need it). Node is only needed to
-work on the UI.
+You need **Docker Desktop** (give it about 12 GB of memory), **Git**, **Python 3** (only to
+run the start script; nothing to install with pip) and an internet connection (the
+eSignet login and the https tunnels need it). Node isn't needed: the Playground is built
+inside Docker.
 
-**1. Private files.** These are not in git. Get them from a teammate, or make your own:
+**1. Private files.** These are never committed. Get them from Chirayu, by direct message:
 
-| File | What it is | How to get it |
-|---|---|---|
-| `wallet/docker-compose/.env` | Google sign-in for Inji Web | Your own OAuth client, see [`wallet/README.md`](wallet/README.md) step 3 |
-| `certify/docker-compose/data/CERTIFY_PKCS12/local.p12` and `certify/docker-compose/keys_seed.local.sql` | The issuer's signing key | From Chirayu, see [`certify/README.md`](certify/README.md) "Running this issuer on another machine" |
+| File | What it is |
+|---|---|
+| `wallet/docker-compose/.env` | Google sign-in for Inji Web. Or make your own OAuth client, see [`wallet/README.md`](wallet/README.md) step 3 |
+| `certify/docker-compose/data/CERTIFY_PKCS12/local.p12` | The issuer's signing keystore |
+| `certify/docker-compose/keys_seed.local.sql` | The database rows that go with it |
 
-Without the signing key Certify still works, but it signs with a new key that doesn't
-match the published DID, so verifiers reject its credentials. The playground's header
-says so when that happens.
+Then create `certify/docker-compose/docker-compose.override.yaml` with exactly this:
+
+```yaml
+services:
+  database:
+    volumes:
+      - ./keys_seed.local.sql:/docker-entrypoint-initdb.d/zz_keys_seed.sql
+```
+
+The seed only loads into a fresh Certify database. If you've run Certify on this machine
+before, wipe its database once: `docker compose -f certify/docker-compose/docker-compose.yaml down -v`.
+
+Without the signing key everything still runs, but Certify signs with a key of its own
+that doesn't match the published DID, so verifiers reject its credentials. The header's
+"DID keys" dot turns amber when that happens.
+
+To sign in to Inji Web, your Google account has to be a test user on the OAuth client
+(Chirayu adds it in the Google Cloud console, Audience → Test users).
 
 **2. Start everything, one command:**
 
 ```bash
-python integration/stack.py up       # Windows: py integration\stack.py up
-python integration/stack.py status   # repeat until everything says up; the first boot takes a few minutes
+python3 integration/stack.py up       # Windows: py integration\stack.py up
+python3 integration/stack.py status   # repeat until everything says up; the first boot takes a few minutes
 ```
 
 That starts both Certify instances, Inji Verify, Mimoto and Inji Web, two https tunnels
 (Inji Web only presents to https addresses), and builds and starts the Playground itself.
 Open **http://localhost:5050**. The API reference is at http://localhost:5050/docs.
 
-Stop with `python integration/stack.py down`. Databases and keys are kept.
+Stop with `python3 integration/stack.py down`. Databases and keys are kept.
 
-Working on the Playground's code? Run `python integration/stack.py up --no-playground`,
+Working on the Playground's code? Run `python3 integration/stack.py up --no-playground`,
 then the BFF and UI from source, see [`playground/README.md`](playground/README.md).
+
+### On Windows, step by step
+
+1. **Install** [Docker Desktop](https://www.docker.com/products/docker-desktop/) (keep the
+   WSL 2 backend it suggests), [Git for Windows](https://git-scm.com/download/win) and
+   [Python 3](https://www.python.org/downloads/) (tick "Add python.exe to PATH").
+2. **Give Docker enough memory.** Create `C:\Users\<you>\.wslconfig` containing:
+   ```ini
+   [wsl2]
+   memory=12GB
+   ```
+   then run `wsl --shutdown` in PowerShell and start Docker Desktop again.
+3. **Clone** in PowerShell:
+   ```powershell
+   git clone https://github.com/Mushmat/inji_sandbox.git
+   cd inji_sandbox
+   ```
+   Use a fresh clone rather than an old one. The repo forces Linux line endings
+   (`.gitattributes`), and a clone made before that was added can still have Windows
+   ones, which break scripts inside the containers.
+4. **Put the private files in place** (step 1 above, same paths with `\`). To create the
+   override file: `notepad certify\docker-compose\docker-compose.override.yaml`, paste the
+   YAML above, save.
+5. **Start it:**
+   ```powershell
+   py integration\stack.py up
+   py integration\stack.py status
+   ```
+   Allow the firewall prompts for Docker if Windows shows them. On a regular Intel or AMD
+   laptop this is faster than on a Mac, because the MOSIP images run without emulation.
+6. **Open http://localhost:5050.** Every dot in the header should be green, including
+   "DID keys match".
+
+If something is in the way:
+
+| Problem | Fix |
+|---|---|
+| `py` isn't found | Use `python` instead |
+| Port 8080 is already taken | `$env:VERIFY_PORT="8082"; py integration\stack.py up` |
+| "DID keys mismatch" in the header | The seed didn't load: check the four files, then `docker compose -f certify\docker-compose\docker-compose.yaml down -v` and `up` again |
+| Services stay "not ready" | Docker needs more memory (step 2), or give it a few more minutes on the first boot |
 
 ## What's covered
 
