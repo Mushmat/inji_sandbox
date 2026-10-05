@@ -52,8 +52,20 @@ jobs:
       - name: Start Certify and Inji Verify
         run: |
           docker network create mosip_network
-          docker compose -f certify/docker-compose/docker-compose.yaml up -d --wait
+          # -f turns off compose's automatic override loading, and the override is what loads the key seed
+          overrides=""; [ -f certify/docker-compose/docker-compose.override.yaml ] && overrides="-f certify/docker-compose/docker-compose.override.yaml"
+          docker compose -f certify/docker-compose/docker-compose.yaml $overrides up -d --wait
           VERIFY_PUBLIC_URL=http://localhost:8080 docker compose -f verify/docker-compose/docker-compose.yaml up -d --wait
+
+      - name: Check Certify signs with the published keys
+        run: |
+          live=$(curl -s localhost:8090/v1/certify/.well-known/did.json | python -c "import json,sys; print(sorted(v['publicKeyMultibase'] for v in json.load(sys.stdin)['verificationMethod']))")
+          published=$(curl -s https://mushmat.github.io/inji_sandbox/did.json | python -c "import json,sys; print(sorted(v['publicKeyMultibase'] for v in json.load(sys.stdin)['verificationMethod']))")
+          echo "live:      $live"; echo "published: $published"
+          if [ "$live" != "$published" ]; then
+            echo "::error::Certify isn't signing with the published did:web keys, so every Certify credential would fail verification. Check the CERTIFY_LOCAL_P12_B64 and CERTIFY_KEYS_SEED_SQL secrets."
+            exit 1
+          fi
 
       - name: Check MOSIP Collab's live endpoints
         run: |

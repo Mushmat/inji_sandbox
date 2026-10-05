@@ -43,6 +43,8 @@ def main():
             if time.time() > deadline:
                 sys.exit(f"The Playground at {base} didn't answer within {args.wait} s.")
             time.sleep(5)
+    if not health["did"]["ok"]:
+        print("WARNING:", health["did"]["detail"])
     down = [s["label"] for s in health["services"] if not s["up"] and s["id"] not in ("mimoto", "inji_web")]
     if down:
         print("Not up yet, runs that need them will error:", ", ".join(down))

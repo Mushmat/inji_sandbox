@@ -70,6 +70,16 @@ def compose(*args, env=None):
     run(["docker", "compose", *args], env=env)
 
 
+def certify_files() -> list:
+    """Compose skips docker-compose.override.yaml once -f is given, and that override is what loads
+    the shared signing key (certify/README.md), so pass it explicitly when it's there."""
+    files = ["-f", str(CERTIFY_COMPOSE)]
+    for name in ("docker-compose.override.yaml", "docker-compose.override.yml"):
+        if (CERTIFY_COMPOSE.parent / name).exists():
+            files += ["-f", str(CERTIFY_COMPOSE.parent / name)]
+    return files
+
+
 def http_status(url: str) -> int:
     try:
         with urllib.request.urlopen(url, timeout=5) as r:
@@ -158,7 +168,7 @@ def up(with_playground=True):
     ensure_network()
 
     print("\n== Certify (eSignet login + pre-authorized) ==")
-    compose("-f", str(CERTIFY_COMPOSE), "up", "-d")
+    compose(*certify_files(), "up", "-d")
 
     print("\n== https tunnels ==")
     tunnels = {key: start_tunnel(name, target) for key, (name, target) in TUNNELS.items()}
@@ -206,7 +216,7 @@ def down():
     compose("-f", str(VERIFY_COMPOSE), "down")
     for name, _ in TUNNELS.values():
         run(["docker", "rm", "-f", name], check=False, capture=True)
-    compose("-f", str(CERTIFY_COMPOSE), "down")
+    compose(*certify_files(), "down")
     print("Stopped. Databases and keys are kept; nothing was deleted.")
 
 

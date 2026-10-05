@@ -97,6 +97,20 @@ class PlaygroundVerifierScenarios(unittest.TestCase):
         self.expect("replay", "REJECTED")
 
 
+class UncheckableSignature(unittest.TestCase):
+    """Found by the nightly matrix: a credential signed with a key the verifier can't find used to come
+    back VALID, because "couldn't check" was treated like "checked and fine"."""
+
+    def test_unresolvable_issuer_key_is_invalid(self):
+        wallet = HolderWallet(directory=f"{DATA}/wallet-unresolvable")
+        wallet.receive_from_test_issuer("ldp_vc")
+        cred = wallet.credentials["ldp_vc"]["credential"]
+        cred["issuer"] = "did:web:unreachable.invalid"
+        cred["proof"]["verificationMethod"] = "did:web:unreachable.invalid#key-1"
+        r = presentation_flow.run_presentation("ldp_vc", "none", source="wallet", wallet=wallet, verifier=verifier())
+        self.assertEqual(r["verifier_result"]["status"], "INVALID", r["verifier_result"])
+
+
 class ProtocolEdges(unittest.TestCase):
     def pd(self):
         return {"id": "pd-1", "input_descriptors": [{"id": "farmer", "constraints": {"fields": [{"path": ["$.type"]}]}}]}

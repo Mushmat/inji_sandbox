@@ -18,6 +18,7 @@ from urllib.parse import quote
 import requests
 
 import catalog
+import health
 import identity
 import store
 from config import CERTIFY_PUBLIC_ISSUER, CERTIFY_URL, INJI_WEB_URL, PORT, ROOT, VERSIONS
@@ -27,10 +28,15 @@ import checks  # verify/scripts
 import presentation_flow  # verify/scripts
 import verifier_service
 from steps import StepLog
+import verifier_client
 from verifier_client import VerifierClient
 from wallet import PRESENTABLE, HolderWallet
 
 logger = logging.getLogger(__name__)
+
+# The first verification after Inji Verify starts, of a presentation carrying several cards, takes
+# 20+ seconds under emulation; its answer then arrived just after verifier_client's 20 s timeout.
+verifier_client.REQUEST_TIMEOUT = 90
 
 CONFIG_IDS = {"ldp_vc": "FarmerCredential", "vc+sd-jwt": "FarmerCredentialSdJwt", "mso_mdoc": "MobileDrivingLicense"}
 PHONE_TIMEOUT_S = 6 * 60
@@ -146,6 +152,10 @@ def start(issuer, wallet, verifier, fmt, scenario) -> dict:
     compat = catalog.check(issuer, wallet, verifier, fmt, scenario)
     if not compat["runnable"]:
         raise ValueError(" ".join(compat["blockers"]))
+    starting = _services_still_starting(issuer, wallet, verifier)
+    if starting:
+        raise RunBusy(f"{' and '.join(starting)} {'is' if len(starting) == 1 else 'are'} still starting. "
+                      "Wait for the dot in the header to turn green, then run again.")
     if (issuer == "certify" or wallet == "inji_web") and identity.certify_restarting():  # the pre-auth instance doesn't restart
         raise RunBusy("Certify is restarting to load the new credential details. Try again when it's back.")
     with _registry_lock:
@@ -163,6 +173,13 @@ def start(issuer, wallet, verifier, fmt, scenario) -> dict:
         target = _automatic
     threading.Thread(target=_guard, args=(run, target), daemon=True).start()
     return run.view()
+
+
+def _services_still_starting(issuer, wallet, verifier) -> list:
+    needed = {"certify_preauth": "certify_preauth", "certify": "certify"}.get(issuer, None), \
+        "mimoto" if wallet == "inji_web" else None, "inji_verify" if verifier == "inji_verify" else None
+    wanted = {sid for sid in needed if sid}
+    return [label for sid, label, url, ok in health.SERVICES if sid in wanted and not health._probe((sid, label, url, ok))["up"]]
 
 
 def get(run_id: str):

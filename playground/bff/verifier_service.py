@@ -180,6 +180,12 @@ def result(transaction_id: str, body: dict = None):
         raise HTTPException(400, {"errorCode": "NO_SUBMISSION", "errorMessage": f"request is {s['status']}"})
     sub = s["submission"]
     results = checks.run_checks(sub["format"], s, sub)
+    # A signature that couldn't be checked (issuer key not found, unreachable DID) is a reason to
+    # refuse, not to accept: otherwise a credential signed with an unknown key passes as VALID.
+    for c in results:
+        if c["id"] == "issuer_signature" and c["ok"] is None:
+            c["ok"] = False
+            c["detail"] = f"couldn't be verified, so it isn't accepted: {c.get('detail') or 'issuer key not found'}"
     expiry = next((c for c in results if c["id"] == "expiry"), None)
     holder = _category(results, HOLDER_CHECKS)
     rest = _category(results, {c["id"] for c in results} - HOLDER_CHECKS - {"expiry"})
