@@ -70,6 +70,10 @@ def main():
 
     counts = {v: verdicts.count(v) for v in sorted(set(verdicts))}
     print(f"\n{len(rows)} runs: " + ", ".join(f"{n} {v}" for v, n in counts.items()))
+    for retry in state.get("retried") or []:
+        c = retry["combo"]
+        print(f"  retried once after an error: {c['issuer']} -> {c['verifier']} {c['format']} {c['scenario']}: "
+              f"{(retry['first_error'] or '')[:160]}")
     for r, v in zip(rows, verdicts):
         if v in ("FAIL", "ERROR"):
             why = r.get("error") or "; ".join(g.get("summary", "") for g in r.get("suspected_gaps") or [])

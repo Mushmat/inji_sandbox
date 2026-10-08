@@ -368,7 +368,7 @@ def _run_issuance(vc_format: str, steps: list, holder_key=None) -> dict:
     )
     if not record("Request the credential", "POST", f"{CERTIFY_URL}/issuance/credential", r,
                   {"request": cred_body, "proof_jwt_decoded": _decoded_jwt(proof_jwt)}):
-        return fail("credential request failed")
+        return fail(f"credential request failed: HTTP {r.status_code} {r.text[:300]}")
 
     credential = r.json()["credential"]
     decoded = decode_credential(vc_format, credential)
@@ -487,7 +487,7 @@ def _run_preauth(vc_format, claims, holder_key, steps):
                       timeout=CREDENTIAL_TIMEOUT)
     if not record("Request the credential", "wallet", "POST", endpoint, r, cred_body,
                   {"proof_jwt_decoded": _decoded_jwt(proof)}):
-        return fail("credential request failed")
+        return fail(f"credential request failed: HTTP {r.status_code} {r.text[:300]}")
 
     credential = r.json()["credential"]
     return {"format": vc_format, "steps": steps, "ok": True, "error": None, "credential": credential,
