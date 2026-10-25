@@ -1,0 +1,109 @@
+{
+  "checked_at": "2026-10-25T15:10:40Z",
+  "base_commit": "96d38b0892f07f9b0e972123f166476e79ec5c3f",
+  "scope": "Automated tests, local scripted-flow verification and archived nightly evidence",
+  "runtime": {
+    "python": "3.14.7",
+    "node": "24.7.0",
+    "npm": "11.5.1",
+    "ci_target": "Python 3.12 and Node.js 22"
+  },
+  "local_checks": [
+    {
+      "name": "Playground backend",
+      "command": "python -m unittest discover -s playground/bff/tests -p \"test_*.py\" -v",
+      "result": "PASS",
+      "tests": 33,
+      "skipped": 0
+    },
+    {
+      "name": "Presentation suite",
+      "cwd": "verify/scripts",
+      "command": "ALLOW_REMOTE_CONTEXTS=0 python -m unittest discover -s tests -v",
+      "result": "PASS",
+      "tests": 35,
+      "passed": 31,
+      "skipped": 4,
+      "skip_reason": "Live Certify/Verify tests require the full stack"
+    },
+    {
+      "name": "Frontend",
+      "cwd": "playground/web",
+      "install": "npm ci --offline --cache /tmp/inji-npm-cache",
+      "install_note": "Recorded local installation used a populated cache. Fresh checkouts should use npm ci with network access.",
+      "command": "npm test",
+      "result": "PASS",
+      "tests": 10
+    },
+    {
+      "name": "Frontend production build",
+      "cwd": "playground/web",
+      "command": "npm run build",
+      "result": "PASS",
+      "warnings": [
+        "Existing large Mermaid bundle/chunk warning"
+      ]
+    }
+  ],
+  "local_end_to_end": {
+    "application_commit": "96d38b0892f07f9b0e972123f166476e79ec5c3f",
+    "issuer": "Test issuer (direct issuance, not OpenID4VCI)",
+    "wallet": "Playground scripted wallet",
+    "verifiers": ["Playground verifier", "Inji Verify 0.18.2"],
+    "formats": ["ldp_vc", "vc+sd-jwt"],
+    "scenarios": ["none", "altered", "replay", "wrong_type", "forged_issuer", "expired"],
+    "runs": 24,
+    "verdicts": {"PASS": 18, "FAIL": 6, "ERROR": 0},
+    "failed_cases": [
+      {"verifier": "playground_verifier", "format": "vc+sd-jwt", "scenario": "forged_issuer"},
+      {"verifier": "inji_verify", "format": "ldp_vc", "scenario": "wrong_type"},
+      {"verifier": "inji_verify", "format": "ldp_vc", "scenario": "forged_issuer"},
+      {"verifier": "inji_verify", "format": "vc+sd-jwt", "scenario": "replay"},
+      {"verifier": "inji_verify", "format": "vc+sd-jwt", "scenario": "wrong_type"},
+      {"verifier": "inji_verify", "format": "vc+sd-jwt", "scenario": "forged_issuer"}
+    ],
+    "playground_failure_cause": "Issuer-key lookup was unavailable; issuer_key_binding returned unknown and the verifier still accepted the forged SD-JWT. Supplying known issuer keys makes the unrelated-key check fail.",
+    "api_checks": "PASS: compatibility, invalid fields/combinations, history, wallet summary, report export, frontend HTTP response and OpenAPI",
+    "browser_checks": "PASS: one additional honest JSON-LD run against Inji Verify, inspector, sequence diagram, report counts and failure filtering",
+    "full_stack_startup": {
+      "command": "python3 integration/stack.py up",
+      "result": "BLOCKED",
+      "missing_files": [
+        "wallet/docker-compose/.env",
+        "certify/docker-compose/data/CERTIFY_PKCS12/local.p12",
+        "certify/docker-compose/keys_seed.local.sql"
+      ],
+      "detail": "Startup exits at the missing wallet OAuth file before starting services. No fresh Certify issuance or real Inji Web consent was established."
+    }
+  },
+  "nightly_report": {
+    "url": "https://github.com/Mushmat/inji_sandbox/actions/runs/39871963688",
+    "artifact": "interoperability-report",
+    "workflow_conclusion_verified_2026_10_23": "success",
+    "report_generated_at": "2026-10-22T23:32:00Z",
+    "artifact_retrieved_date": "2026-10-25",
+    "original_report_sha256": "464afda509b40130d17214390f564af5a2636879ef339c88a2db097777a7ecbd",
+    "runs": 74,
+    "verdicts": {
+      "PASS": 57,
+      "FAIL": 15,
+      "UNSUPPORTED": 2
+    },
+    "wallets": [
+      "Playground wallet"
+    ],
+    "not_proven": [
+      "Fresh manual Inji Web consent/download",
+      "All-Inji SD-JWT presentation",
+      "Mobile/Digital Credentials API device interoperability",
+      "mDoc OpenID4VP presentation",
+      "Resolution of upstream interoperability failures"
+    ]
+  },
+  "documentation_checks": {
+    "local_links": "PASS",
+    "documented_api_routes": "PASS",
+    "api_method_path_pairs_checked": 19,
+    "source": "FastAPI OpenAPI schema at the unchanged base commit"
+  }
+}
