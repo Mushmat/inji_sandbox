@@ -1,15 +1,17 @@
 # Status — Inji Interoperability Playground
 
-Last updated: 2026-10-05
+Last reviewed: 2026-10-25 (documentation and evidence; application code unchanged at `96d38b0`)
 
 ## Summary
 
 The three pipelines (Certify, the wallet, Present & Verify) are integrated and run
 together from one command, with the Playground on top: one page that runs issue →
-hold → present → verify across any issuer, wallet and verifier, shows every protocol
-message, and records whether each module behaved the way the standards say it should.
-All mandatory requirements (FR1–FR7) work and have been tested by hand end to end,
-including the real Inji Web wallet. Most good-to-have and bonus items are done too.
+hold → present → verify across supported issuer, wallet and verifier combinations,
+shows recorded protocol messages, and compares results with the expected behavior.
+The implemented features include prior manual Inji Web results, but real-wallet
+payload capture and all-Inji SD-JWT presentation remain incomplete. The current
+[submission checklist](docs/submission-checklist.md) distinguishes source capability,
+recorded evidence and outstanding acceptance work.
 
 How to run it, on macOS or Windows: [README.md](README.md#run-it).
 
@@ -38,15 +40,26 @@ uploaded photo and field validation), a report with a compatibility matrix, flow
 health (success rates and latency), filterable history and markdown export, and a
 test matrix that runs every automated combination.
 
-**Tests.** 33 backend tests (every tamper scenario against the Playground verifier over
-real HTTP, offline), 10 frontend tests, 35 offline verifier tests, 14 live Certify
-tests. GitHub runs the offline suites on every push, and the full matrix every night.
+**Tests.** The documentation review reran 33 backend tests and 10 frontend tests.
+The presentation suite passed 31 offline checks and skipped four live checks;
+the 14 live Certify tests were not rerun. The frontend production build passed.
+Exact commands and the separate nightly provenance are in the
+[verification record](docs/evidence/verification.json).
+
+Fresh local smoke testing exercised 24 scripted issue → hold → present → verify
+flows: 18 PASS and 6 FAIL, with no execution errors. A separate browser-triggered
+honest JSON-LD flow against Inji Verify passed; the inspector, sequence diagram,
+report and failure filter were checked. The full real-wallet startup stopped at
+the missing Google OAuth configuration; the shared issuer keystore and seed are
+also required. See the [local results](docs/interoperability-report.md#local-verification--2026-10-25).
 
 ## What we found
 
 Inji Verify 0.18.2 accepts a wrong credential type (F2), an SD-JWT replayed from another
 session (F3), and a credential signed by someone else's key that names Certify as the
-issuer (F10). The Playground verifier catches all three. The full list, with how to
+issuer (F10). The Playground verifier detects these in the configured nightly
+stack, but local testing with Certify unavailable exposed forged SD-JWT acceptance
+when issuer-key lookup remains unresolved. This validation gap remains open. The full list, with how to
 reproduce each, is in [verify/docs/FINDINGS.md](verify/docs/FINDINGS.md), the "Known
 gaps" in [wallet/README.md](wallet/README.md) and "What we found" in
 [certify/README.md](certify/README.md).
@@ -78,8 +91,8 @@ gaps" in [wallet/README.md](wallet/README.md) and "What we found" in
 ## Still to do for submission
 
 1. Record the 3–5 minute demo video.
-2. Commit a full-matrix report as `docs/interoperability-report.md` (from a passing
-   nightly run's artifact) and remove the old quick-matrix one at the repo root.
+2. Confirm the full 74-run [nightly report](docs/interoperability-report.md) matches
+   the submitted application code; refresh evidence after implementation changes.
 3. FR15: file F2 and F3 on `mosip/inji-verify`; report F10 to MOSIP privately first.
 4. Commits from every teammate on `main`.
 5. Make sure the committed person photo is a stand-in, not a real face.

@@ -10,6 +10,14 @@ OpenID4VP for presentation) and checks the verifier's answer against what the
 standards expect. Where they disagree, that's an interoperability gap, and it lands
 in the report.
 
+## Submission documents
+
+- [Architecture and flow diagrams](docs/architecture.md)
+- [Playground API reference](docs/API_DOCUMENTATION.md)
+- [Full interoperability report and provenance](docs/interoperability-report.md)
+- [Acceptance checklist and remaining work](docs/submission-checklist.md)
+- [Four-minute demo script](docs/demo-script.md)
+
 ## How it fits together
 
 ```mermaid
@@ -160,6 +168,11 @@ If something is in the way:
 | FR14 CI-style test suite | Test matrix on the Report tab, `playground/run_matrix.py`, nightly GitHub workflow |
 | FR16 Success rate and latency per flow | Report tab, "Flow health" |
 | FR17 One-command Docker Compose bundle | `python integration/stack.py up` |
+
+Coverage depends on the selected wallet: pinned Inji Web cannot present SD-JWT,
+and its internal issuance exchanges are not fully visible to the inspector.
+The [full nightly report](docs/interoperability-report.md) uses the scripted holder;
+the [acceptance checklist](docs/submission-checklist.md) records the remaining manual checks.
 
 Not done: FR15 (filing the gaps as issues on MOSIP's repositories) is the team's call.
 F10 in the findings lets anyone forge credentials that Inji Verify accepts, so it should
