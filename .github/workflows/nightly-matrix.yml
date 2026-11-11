@@ -12,8 +12,6 @@ name: Nightly interoperability matrix
 # Without them Certify makes its own keys and every Certify credential is reported INVALID.
 
 on:
-  schedule:
-    - cron: "30 20 * * *"  # 02:00 IST
   workflow_dispatch:
     inputs:
       preset:
